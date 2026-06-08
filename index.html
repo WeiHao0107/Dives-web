@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <title>Dives 投資追蹤</title>
+  <meta name="theme-color" content="#FAFAF9">
+  <link rel="manifest" href="manifest.webmanifest">
+
+  <!-- PWA -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Dives">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="h-title">
+      <span class="logo">Dives</span>
+      <span id="last-updated" class="last-updated"></span>
+    </div>
+    <button id="refresh-btn" class="icon-btn" aria-label="重新整理報價">⟳</button>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <button id="fab" class="fab" aria-label="新增交易">＋</button>
+
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="portfolio"><span class="ti">📊</span><span>持倉</span></button>
+    <button class="tab-btn" data-tab="history"><span class="ti">📈</span><span>歷史</span></button>
+    <button class="tab-btn" data-tab="report"><span class="ti">📋</span><span>報表</span></button>
+    <button class="tab-btn" data-tab="settings"><span class="ti">⚙️</span><span>設定</span></button>
+  </nav>
+
+  <script src="js/util.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/csv.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
