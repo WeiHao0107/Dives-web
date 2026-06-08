@@ -40,6 +40,19 @@ python3 -m http.server 8765
 # 瀏覽器開 http://localhost:8765
 ```
 
+## 雲端自動同步（跨裝置 / 跨瀏覽器）
+
+資料預設只存單一瀏覽器本機。要在多裝置共用同一份資料，可用 **GitHub Gist 自動同步**：
+
+1. 產生 GitHub Token：開 [github.com/settings/tokens/new?scopes=gist](https://github.com/settings/tokens/new?scopes=gist&description=dives-sync)（已預選 `gist` 權限）→ Generate → 複製
+2. App → 設定 → **雲端同步** → 貼上 token → 啟用
+3. 其他裝置貼**同一組 token** 即自動同步同一份資料
+
+機制：開啟 / 回前景自動拉取，資料變動 2 秒後自動推送，以時間戳判斷新舊（後改的勝）。
+資料存在**你自己 GitHub 帳號的私人 Gist**，token 只存各裝置本機、不寫入 Gist。
+
+> 注意：同一時間在兩台裝置同時編輯，後存的會覆蓋先存的（單人跨裝置正常使用幾乎不會遇到）。
+
 ## 從 iOS app 搬移資料
 
 1. iOS app → 設定 → 匯出備份 → 取得 `portfolio_backup_YYYY-MM-DD.csv`

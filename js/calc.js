@@ -225,10 +225,13 @@ App.Calc = (function () {
       totalReturnPct: summary.totalReturnPct || 0,
       createdAt: Date.now(),
     };
-    let snaps = S.getSnapshots().filter(s => s.date !== date);
+    const all = S.getSnapshots();
+    const isNew = !all.some(s => s.date === date);
+    let snaps = all.filter(s => s.date !== date);
     snaps.push(snap);
     snaps.sort((a, b) => a.date < b.date ? -1 : 1);
     S.setSnapshots(snaps);
+    return isNew; // 是否新增了「新的一天」（供同步判斷）
   }
 
   return {

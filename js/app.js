@@ -47,7 +47,8 @@
     btn && btn.classList.add('spin');
     try {
       await Api.refreshPrices(symbols);
-      C.saveTodaySnapshot();
+      const isNewDay = C.saveTodaySnapshot();
+      if (isNewDay && App.Sync) App.Sync.markDirty(); // 新的一天快照 → 同步
       renderCurrent();
     } catch (e) {
       console.error(e); UI.toast('報價更新失敗', 'error');
@@ -58,9 +59,10 @@
     }
   }
 
-  // 資料變動後：重算今日快照、重繪、背景刷新指定報價
+  // 資料變動後：重算今日快照、雲端同步、重繪、背景刷新指定報價
   function afterDataChange(symbolsToRefresh) {
     C.saveTodaySnapshot();
+    if (App.Sync) App.Sync.markDirty(); // 使用者動作 → 推送雲端
     renderCurrent();
     if (symbolsToRefresh === undefined) symbolsToRefresh = null; // null = 全部
     refresh(symbolsToRefresh && symbolsToRefresh.length ? symbolsToRefresh : undefined);
@@ -83,17 +85,26 @@
     // 從快取立即顯示
     renderCurrent();
 
-    // 首次啟動若有持倉 → 自動刷新；並預載台股全市場表供搜尋
-    const hasTx = S.getTransactions().length > 0;
-    if (hasTx) refresh();
-    Api.loadTwUniverse(false).catch(() => {});
-
-    // 回到前景時，若超過 10 分鐘自動刷新
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        const ts = S.getPricesTs();
-        if (!ts || Date.now() - ts > 600000) refresh();
+    // 啟用同步時：先從雲端拉最新，再刷新報價
+    (async () => {
+      if (App.Sync && App.Sync.enabled()) {
+        const r = await App.Sync.pull();
+        if (r.changed) renderCurrent();
       }
+      const hasTx = S.getTransactions().length > 0;
+      if (hasTx) refresh();
+      Api.loadTwUniverse(false).catch(() => {});
+    })();
+
+    // 回到前景時：先拉雲端，再視情況刷新報價
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (App.Sync && App.Sync.enabled()) {
+        const r = await App.Sync.pull();
+        if (r.changed) renderCurrent();
+      }
+      const ts = S.getPricesTs();
+      if (!ts || Date.now() - ts > 600000) refresh();
     });
 
     // 註冊 Service Worker

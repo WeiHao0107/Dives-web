@@ -401,6 +401,20 @@ App.Views = (function () {
     </div>
 
     <div class="card setting-card">
+      <div class="set-title">雲端同步（GitHub Gist）</div>
+      <div class="set-row">
+        <input class="input" id="sync-token" type="password" placeholder="貼上 GitHub Token（gist 權限）" value="${App.Sync && App.Sync.enabled() ? '••••••••••••' : ''}">
+        <button class="btn btn-primary" id="sync-save">${App.Sync && App.Sync.enabled() ? '更新' : '啟用'}</button>
+      </div>
+      <div class="set-row" style="margin-top:8px">
+        <button class="btn btn-ghost" id="sync-now" style="flex:1" ${App.Sync && App.Sync.enabled() ? '' : 'disabled'}>立即同步</button>
+        ${App.Sync && App.Sync.enabled() ? '<button class="btn btn-ghost" id="sync-off" style="flex:1">停用同步</button>' : ''}
+      </div>
+      <div class="set-hint" id="sync-status">${App.Sync && App.Sync.enabled() ? '同步已啟用' : '各裝置貼同一組 token 即可自動同步同一份資料'}</div>
+      <div class="set-hint"><a href="https://github.com/settings/tokens/new?scopes=gist&description=dives-sync" target="_blank" style="color:${COL.tw}">→ 點此產生 GitHub Token（已預選 gist 權限）</a></div>
+    </div>
+
+    <div class="card setting-card">
       <div class="set-title">資料備份</div>
       <button class="btn btn-block btn-primary" id="btn-export">匯出備份（交易 + 快照）</button>
       <label class="btn btn-block btn-ghost" for="file-import">匯入備份</label>
@@ -437,6 +451,40 @@ App.Views = (function () {
       S.setAccount({ initialCash: v === '' ? null : parseFloat(v) });
       UI.toast('已儲存起始現金', 'success'); App.afterDataChange([]);
     });
+
+    // ── 雲端同步 ──
+    const syncStatusEl = root.querySelector('#sync-status');
+    function fmtSyncStatus(s) {
+      if (!s) return;
+      if (s === 'syncing') { syncStatusEl.textContent = '同步中…'; return; }
+      if (s.startsWith('synced:')) {
+        const ts = +s.slice(7);
+        syncStatusEl.textContent = ts ? ('已同步 · ' + new Date(ts).toLocaleString('zh-TW')) : '已同步';
+        return;
+      }
+      if (s.startsWith('error:')) { syncStatusEl.textContent = '同步失敗：' + s.slice(6); return; }
+    }
+    if (App.Sync) App.Sync.onStatus(fmtSyncStatus);
+    root.querySelector('#sync-save').addEventListener('click', async () => {
+      const t = root.querySelector('#sync-token').value.trim();
+      if (!t || t.startsWith('••')) { UI.toast('請貼上 GitHub Token', 'info'); return; }
+      UI.toast('啟用同步中…', 'info');
+      const r = await App.Sync.enable(t);
+      if (r.error) { UI.toast('啟用失敗：' + r.error, 'error'); return; }
+      UI.toast(r.changed ? '已從雲端載入資料' : '同步已啟用', 'success');
+      App.renderCurrent();
+    });
+    const nowBtn = root.querySelector('#sync-now');
+    if (nowBtn) nowBtn.addEventListener('click', async () => {
+      const r = await App.Sync.pull();
+      if (r.error) UI.toast('同步失敗：' + r.error, 'error');
+      else { UI.toast('同步完成', 'success'); if (r.changed) App.renderCurrent(); }
+    });
+    const offBtn = root.querySelector('#sync-off');
+    if (offBtn) offBtn.addEventListener('click', () =>
+      UI.confirmDialog('停用同步？(本機資料會保留，雲端 Gist 不刪除)', () => {
+        App.Sync.disable(); UI.toast('已停用同步', 'info'); settings(root);
+      }, '停用'));
     root.querySelector('#btn-export').addEventListener('click', doExport);
     root.querySelector('#file-import').addEventListener('change', e => {
       const f = e.target.files[0]; if (!f) return;
