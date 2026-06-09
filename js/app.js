@@ -80,11 +80,16 @@
     const mmap = S.metaMap();
     const firstTime = Math.min(...txs.map(t => t.time));
     const firstDate = App.Util.isoDate(new Date(firstTime));
-    const twCodes = [...new Set(txs.map(t => t.symbol))]
-      .filter(c => App.Util.normalizeMarketKey((mmap[c] && mmap[c].market) || App.Util.guessMarketBySymbol(c)) !== App.Util.Market.us);
+    const all = [...new Set(txs.map(t => t.symbol))];
+    const isUs = c => App.Util.normalizeMarketKey((mmap[c] && mmap[c].market) || App.Util.guessMarketBySymbol(c)) === App.Util.Market.us;
+    const twCodes = all.filter(c => !isUs(c));
+    const usCodes = all.filter(isUs);
     await Api.fetchFx();
-    const hist = await Api.fetchTwHistory(twCodes, firstDate);
-    const n = C.rebuildSnapshots(hist, S.getFxRate());
+    const [twHist, usHist] = await Promise.all([
+      Api.fetchTwHistory(twCodes, firstDate),
+      Api.fetchUsHistory(usCodes, firstDate),
+    ]);
+    const n = C.rebuildSnapshots(Object.assign({}, twHist, usHist), S.getFxRate());
     C.saveTodaySnapshot();          // 今天用即時價覆蓋
     if (App.Sync) App.Sync.markDirty();
     renderCurrent();

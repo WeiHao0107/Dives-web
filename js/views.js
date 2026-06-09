@@ -456,7 +456,7 @@ App.Views = (function () {
       <input type="file" id="file-import" accept=".csv,text/csv" style="display:none">
       <div class="set-hint">CSV 格式與 iOS app 相容，可互通資料</div>
       <button class="btn btn-block btn-ghost" id="btn-rebuild" style="margin-top:8px">重建歷史走勢圖</button>
-      <div class="set-hint">用交易紀錄 + 台股歷史收盤，補回過去每日資產曲線（美股歷史以成本估算）</div>
+      <div class="set-hint">用交易紀錄 + 台股／美股歷史收盤，補回過去每日資產曲線</div>
     </div>
 
     <div class="card setting-card">

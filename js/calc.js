@@ -260,10 +260,10 @@ App.Calc = (function () {
     };
   }
 
-  // 用交易紀錄 + 台股歷史收盤，回推每一天的快照（重建歷史走勢）
-  // twHist: { code: [{date:'YYYY-MM-DD', close:number}, ...] }（已升序）
-  // 美股無免費歷史價 → 以成本估算（歷史段顯示成本，今日由 saveTodaySnapshot 補即時）
-  function rebuildSnapshots(twHist, fxRate) {
+  // 用交易紀錄 + 歷史收盤，回推每一天的快照（重建歷史走勢）
+  // hist: { code: [{date:'YYYY-MM-DD', close:number}, ...] }（已升序，含台股與美股）
+  // 無歷史價的代碼則以成本估算
+  function rebuildSnapshots(hist, fxRate) {
     const txs = S.getTransactions().slice().sort((a, b) => a.time - b.time);
     if (!txs.length) return 0;
     const rate = fxRate || S.getFxRate() || 31.5;
@@ -277,8 +277,8 @@ App.Calc = (function () {
     const start = new Date(firstDate + 'T00:00:00+08:00');
     const end = new Date(today + 'T00:00:00+08:00');
 
-    // 台股各檔 carry-forward 指標
-    const codes = Object.keys(twHist);
+    // 各檔 carry-forward 指標（台股 + 美股）
+    const codes = Object.keys(hist);
     const ptr = {}, last = {};
     codes.forEach(c => { ptr[c] = 0; last[c] = null; });
 
@@ -286,7 +286,7 @@ App.Calc = (function () {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const ds = U.isoDate(d);
       codes.forEach(c => {
-        const arr = twHist[c];
+        const arr = hist[c];
         while (ptr[c] < arr.length && arr[ptr[c]].date <= ds) { last[c] = arr[ptr[c]].close; ptr[c]++; }
       });
 
@@ -300,7 +300,8 @@ App.Calc = (function () {
         const cost = shares * avgCost;
         const market = U.normalizeMarketKey(mmap[sym] ? mmap[sym].market : U.guessMarketBySymbol(sym));
         if (market === U.Market.us) {
-          const mv = avgCost * shares; // 無歷史價 → 用成本
+          const price = last[sym] != null ? last[sym] : avgCost; // 美股歷史收盤（無則用成本）
+          const mv = price * shares;
           s.usMarketValueTwd += mv * rate; s.usCostBasisTwd += cost * rate; s.usUnrealizedPnlTwd += (mv - cost) * rate;
         } else {
           const price = last[sym] != null ? last[sym] : avgCost;
