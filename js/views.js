@@ -85,24 +85,29 @@ App.Views = (function () {
     if (!list.length) {
       listHtml = `<div class="empty">尚無持倉，點右下角 ＋ 新增交易</div>`;
     } else {
+      // 「全部」檢視：美股換算成台幣，單位統一為 NT$
+      const toTwd = pf.filter === 'all';
       listHtml = `<div class="card holdings">`;
       for (const p of list) {
         const isUs = U.normalizeMarketKey(p.market) === U.Market.us;
-        const cur = isUs ? '$' : '';
-        const pnlPct = p.cost > 1e-9 ? p.unrealizedPnl / p.cost * 100 : 0;
+        const conv = (isUs && toTwd) ? rate : 1;         // 全部模式美股 ×匯率
+        const showUsd = isUs && !toTwd;                   // 僅在美股分頁顯示 $
+        const cur = showUsd ? '$' : '';
+        const mvCur = showUsd ? '$' : 'NT$';
+        const pnlPct = p.cost > 1e-9 ? p.unrealizedPnl / p.cost * 100 : 0; // 比率，與幣別無關
         const chg = p.dailyChangePct;
         listHtml += `<div class="hold-row" data-sym="${p.symbol}">
           <div class="h-left">
             <div class="h-sym">${p.symbol} <span class="h-name">${p.name}</span></div>
-            <div class="h-sub">${U.formatShares(p.shares)} 股 @ ${U.formatPrice(p.avgCost)}</div>
+            <div class="h-sub">${U.formatShares(p.shares)} 股 @ ${U.formatPrice(p.avgCost * conv)}</div>
           </div>
           <div class="h-mid">
-            <div class="h-price">${p.lastPrice != null ? cur + U.formatPrice(p.lastPrice) : '--'}</div>
+            <div class="h-price">${p.lastPrice != null ? cur + U.formatPrice(p.lastPrice * conv) : '--'}</div>
             <div class="h-chg" style="color:${UI.pnlColor(chg || 0)}">${chg != null ? U.fmtPct(chg) : ''}</div>
           </div>
           <div class="h-right">
-            <div class="h-mv">${cur ? '$' : 'NT$'} ${U.fmtKMBB(p.marketValue)}</div>
-            <div class="h-pnl" style="color:${UI.pnlColor(p.unrealizedPnl)}">${U.fmtBannerSigned(p.unrealizedPnl)} (${U.fmtPct(pnlPct)})</div>
+            <div class="h-mv">${mvCur} ${U.fmtKMBB(p.marketValue * conv)}</div>
+            <div class="h-pnl" style="color:${UI.pnlColor(p.unrealizedPnl)}">${U.fmtBannerSigned(p.unrealizedPnl * conv)} (${U.fmtPct(pnlPct)})</div>
           </div>
         </div>`;
       }
