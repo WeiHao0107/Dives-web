@@ -81,16 +81,17 @@ App.Views = (function () {
       return pf.asc ? av - bv : bv - av;
     });
 
+    let listHtml = '';
     if (!list.length) {
-      html += `<div class="empty">尚無持倉，點右下角 ＋ 新增交易</div>`;
+      listHtml = `<div class="empty">尚無持倉，點右下角 ＋ 新增交易</div>`;
     } else {
-      html += `<div class="card holdings">`;
+      listHtml = `<div class="card holdings">`;
       for (const p of list) {
         const isUs = U.normalizeMarketKey(p.market) === U.Market.us;
         const cur = isUs ? '$' : '';
         const pnlPct = p.cost > 1e-9 ? p.unrealizedPnl / p.cost * 100 : 0;
         const chg = p.dailyChangePct;
-        html += `<div class="hold-row" data-sym="${p.symbol}">
+        listHtml += `<div class="hold-row" data-sym="${p.symbol}">
           <div class="h-left">
             <div class="h-sym">${p.symbol} <span class="h-name">${p.name}</span></div>
             <div class="h-sub">${U.formatShares(p.shares)} 股 @ ${U.formatPrice(p.avgCost)}</div>
@@ -105,10 +106,10 @@ App.Views = (function () {
           </div>
         </div>`;
       }
-      html += `</div>`;
+      listHtml += `</div>`;
     }
 
-    root.innerHTML = html;
+    root.innerHTML = `<div class="page"><div class="page-top">${html}</div><div class="page-list">${listHtml}</div></div>`;
 
     // 事件
     root.querySelector('#pf-sort').value = pf.sort;
@@ -147,14 +148,18 @@ App.Views = (function () {
   const RANGES = [['1m', '1M'], ['3m', '3M'], ['6m', '6M'], ['ytd', 'YTD'], ['1y', '1Y'], ['all', '全部']];
 
   function history(root) {
-    let html = `<div class="seg seg-wide" id="hist-tab">
-      ${seg2('trend', '趨勢', hist.tab)}${seg2('tx', '交易紀錄', hist.tab)}
-    </div><div id="hist-body"></div>`;
-    root.innerHTML = html;
+    root.innerHTML = `<div class="page">
+      <div class="page-top">
+        <div class="seg seg-wide" id="hist-tab">${seg2('trend', '趨勢', hist.tab)}${seg2('tx', '交易紀錄', hist.tab)}</div>
+        <div id="hist-fixed"></div>
+      </div>
+      <div class="page-list" id="hist-scroll"></div>
+    </div>`;
     root.querySelectorAll('#hist-tab .seg-btn').forEach(b =>
       b.addEventListener('click', () => { hist.tab = b.dataset.v; history(root); }));
-    const body = root.querySelector('#hist-body');
-    if (hist.tab === 'trend') histTrend(body); else histTx(body);
+    const fixedEl = root.querySelector('#hist-fixed');
+    const scrollEl = root.querySelector('#hist-scroll');
+    if (hist.tab === 'trend') histTrend(fixedEl, scrollEl); else histTx(fixedEl, scrollEl);
   }
   function seg2(v, label, cur) { return `<button class="seg-btn ${cur === v ? 'active' : ''}" data-v="${v}">${label}</button>`; }
 
@@ -171,16 +176,16 @@ App.Views = (function () {
     return snaps.filter(s => s.date >= fromStr);
   }
 
-  function histTrend(body) {
-    let chips = `<div class="chips" id="range-chips">` +
+  function histTrend(fixedEl, scrollEl) {
+    fixedEl.innerHTML = `<div class="chips" id="range-chips">` +
       RANGES.map(([v, l]) => `<button class="chip ${hist.range === v ? 'active' : ''}" data-v="${v}">${l}</button>`).join('') + `</div>`;
-    body.innerHTML = chips + `<div class="card"><div class="chart-host" id="trend-chart"></div></div>`;
-    body.querySelectorAll('#range-chips .chip').forEach(b =>
-      b.addEventListener('click', () => { hist.range = b.dataset.v; histTrend(body); }));
+    fixedEl.querySelectorAll('#range-chips .chip').forEach(b =>
+      b.addEventListener('click', () => { hist.range = b.dataset.v; histTrend(fixedEl, scrollEl); }));
 
+    scrollEl.innerHTML = `<div class="card"><div class="chart-host" id="trend-chart"></div></div>`;
     const snaps = filterByRange(S.getSnapshots());
     const points = snaps.map(s => ({ date: new Date(s.date + 'T00:00:00+08:00'), values: { tw: s.twMarketValue, us: s.usMarketValueTwd } }));
-    App.Charts.trend(body.querySelector('#trend-chart'), points, {
+    App.Charts.trend(scrollEl.querySelector('#trend-chart'), points, {
       twKey: 'tw', usKey: 'us', twLabel: '台股', usLabel: '美股',
       xLabels: monthLabels(points),
       valueFmt: v => 'NT$ ' + U.fmtKMBB(v),
@@ -204,7 +209,7 @@ App.Views = (function () {
     return out.filter((_, i) => i % step === 0);
   }
 
-  function histTx(body) {
+  function histTx(fixedEl, scrollEl) {
     const mmap = S.metaMap();
     let txs = S.getTransactions().slice().sort((a, b) => b.time - a.time);
     txs = txs.filter(t => {
@@ -218,15 +223,16 @@ App.Views = (function () {
       txs = txs.filter(t => t.symbol.includes(q) || (mmap[t.symbol]?.name || '').toUpperCase().includes(q));
     }
 
-    let html = `<div class="toolbar">
+    fixedEl.innerHTML = `<div class="toolbar">
       <div class="seg" id="tx-filter">${seg('all', '全部', hist.txFilter)}${seg('tw', '台股', hist.txFilter)}${seg('us', '美股', hist.txFilter)}</div>
     </div>
-    <input class="input search" id="tx-search" placeholder="搜尋代碼或名稱" value="${hist.search}">
-    <div class="card tx-list">`;
-    if (!txs.length) html += `<div class="empty">無交易紀錄</div>`;
+    <input class="input search" id="tx-search" placeholder="搜尋代碼或名稱" value="${hist.search}">`;
+
+    let listHtml = `<div class="card tx-list">`;
+    if (!txs.length) listHtml += `<div class="empty">無交易紀錄</div>`;
     for (const t of txs) {
       const name = mmap[t.symbol]?.name || t.symbol;
-      html += `<div class="tx-row" data-id="${t.id}">
+      listHtml += `<div class="tx-row" data-id="${t.id}">
         <span class="tx-type ${t.type === 'BUY' ? 'buy' : 'sell'}">${t.type === 'BUY' ? '買入' : '賣出'}</span>
         <div class="tx-main">
           <div class="tx-sym">${t.symbol} <span class="h-name">${name}</span></div>
@@ -238,14 +244,15 @@ App.Views = (function () {
         </div>
       </div>`;
     }
-    html += `</div>`;
-    body.innerHTML = html;
-    body.querySelectorAll('#tx-filter .seg-btn').forEach(b =>
-      b.addEventListener('click', () => { hist.txFilter = b.dataset.v; histTx(body); }));
-    const se = body.querySelector('#tx-search');
+    listHtml += `</div>`;
+    scrollEl.innerHTML = listHtml;
+
+    fixedEl.querySelectorAll('#tx-filter .seg-btn').forEach(b =>
+      b.addEventListener('click', () => { hist.txFilter = b.dataset.v; histTx(fixedEl, scrollEl); }));
+    const se = fixedEl.querySelector('#tx-search');
     se.addEventListener('input', e => { hist.search = e.target.value; });
-    se.addEventListener('change', () => histTx(body));
-    body.querySelectorAll('.tx-row').forEach(r => r.addEventListener('click', () => {
+    se.addEventListener('change', () => histTx(fixedEl, scrollEl));
+    scrollEl.querySelectorAll('.tx-row').forEach(r => r.addEventListener('click', () => {
       const tx = S.getTransactions().find(t => t.id === r.dataset.id);
       if (tx) openTxForm(tx);
     }));
@@ -314,7 +321,7 @@ App.Views = (function () {
 
     if (!reports.length) {
       html += `<div class="empty">暫無報表資料，使用一段時間後每日快照將彙整於此</div>`;
-      root.innerHTML = html;
+      root.innerHTML = `<div class="page-full">${html}</div>`;
       bindReportTop(root, years);
       return;
     }
@@ -354,7 +361,7 @@ App.Views = (function () {
       </div>`;
     }
     html += `</div>`;
-    root.innerHTML = html;
+    root.innerHTML = `<div class="page-full">${html}</div>`;
     bindReportTop(root, years);
 
     // 表頭點擊：切換對應欄位圖表（再點一次回走勢圖）
@@ -462,7 +469,7 @@ App.Views = (function () {
       <div class="set-title" style="color:${UI.LOSS}">危險區域</div>
       <button class="btn btn-block btn-danger" id="btn-clear">清空所有資料</button>
     </div>`;
-    root.innerHTML = html;
+    root.innerHTML = `<div class="page-full">${html}</div>`;
 
     root.querySelector('#set-cash-save').addEventListener('click', () => {
       const v = root.querySelector('#set-cash').value.trim();
