@@ -83,6 +83,26 @@ App.Api = (function () {
     } catch (e) { return null; }
   }
 
+  // ---- 台股歷史日線（FinMind，供重建歷史走勢）----
+  // 回傳 { code: [{date, close}, ...]（升序）}
+  async function fetchTwHistory(codes, startDate) {
+    const out = {};
+    const queue = [...codes];
+    async function worker() {
+      while (queue.length) {
+        const code = queue.shift();
+        try {
+          const j = await fetchJson(fmUrl({ dataset: 'TaiwanStockPrice', data_id: code, start_date: startDate }));
+          const rows = (j.data || []).map(r => ({ date: r.date, close: U.parseNum(r.close) }))
+            .filter(r => r.close != null).sort((a, b) => a.date < b.date ? -1 : 1);
+          out[code] = rows;
+        } catch (e) { out[code] = []; }
+      }
+    }
+    await Promise.all([worker(), worker(), worker()]);
+    return out;
+  }
+
   // ---- 台股盤中即時（TWSE MIS，經 proxy；可批次多檔）----
   // 回傳 {code: {price, dailyChange, prevClose}}；盤中時段使用
   async function fetchTwRealtime(metas) {
@@ -249,5 +269,5 @@ App.Api = (function () {
     return results.slice(0, 30);
   }
 
-  return { fetchText, fetchJson, loadTwUniverse, fetchTwPrice, fetchTwRealtime, fetchUsQuote, fetchFx, refreshPrices, searchSymbols, finnhubKey };
+  return { fetchText, fetchJson, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchTwRealtime, fetchUsQuote, fetchFx, refreshPrices, searchSymbols, finnhubKey };
 })();

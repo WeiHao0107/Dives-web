@@ -455,6 +455,8 @@ App.Views = (function () {
       <label class="btn btn-block btn-ghost" for="file-import">匯入備份</label>
       <input type="file" id="file-import" accept=".csv,text/csv" style="display:none">
       <div class="set-hint">CSV 格式與 iOS app 相容，可互通資料</div>
+      <button class="btn btn-block btn-ghost" id="btn-rebuild" style="margin-top:8px">重建歷史走勢圖</button>
+      <div class="set-hint">用交易紀錄 + 台股歷史收盤，補回過去每日資產曲線（美股歷史以成本估算）</div>
     </div>
 
     <div class="card setting-card">
@@ -524,13 +526,24 @@ App.Views = (function () {
     root.querySelector('#file-import').addEventListener('change', e => {
       const f = e.target.files[0]; if (!f) return;
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         const res = App.Csv.importCsv(String(reader.result));
-        if (res.ok) { UI.toast(`匯入成功：${res.txCount} 筆交易${res.snapCount ? '、' + res.snapCount + ' 筆快照' : ''}`, 'success'); App.afterDataChange(); }
-        else UI.toast(res.msg || '匯入失敗', 'error');
+        if (res.ok) {
+          UI.toast(`匯入成功：${res.txCount} 筆交易${res.snapCount ? '、' + res.snapCount + ' 筆快照' : ''}`, 'success');
+          App.afterDataChange();
+          // 無快照時自動重建歷史走勢
+          if (!res.snapCount) { UI.toast('重建歷史走勢中…', 'info'); await App.rebuildHistory(); UI.toast('已重建歷史走勢', 'success'); }
+        } else UI.toast(res.msg || '匯入失敗', 'error');
       };
       reader.readAsText(f);
       e.target.value = '';
+    });
+    root.querySelector('#btn-rebuild').addEventListener('click', async () => {
+      const btn = root.querySelector('#btn-rebuild');
+      btn.textContent = '重建中…'; btn.disabled = true;
+      const n = await App.rebuildHistory();
+      btn.textContent = '重建歷史走勢圖'; btn.disabled = false;
+      if (n) UI.toast(`已重建 ${n} 天歷史走勢`, 'success');
     });
     root.querySelector('#btn-adv-save').addEventListener('click', () => {
       const fk = root.querySelector('#set-finnhub').value.trim();

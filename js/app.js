@@ -73,11 +73,30 @@
     refresh(symbolsToRefresh && symbolsToRefresh.length ? symbolsToRefresh : undefined);
   }
 
+  // 重建歷史走勢：用交易 + 台股歷史收盤回推每日快照
+  async function rebuildHistory() {
+    const txs = S.getTransactions();
+    if (!txs.length) { UI.toast('尚無交易可重建', 'info'); return 0; }
+    const mmap = S.metaMap();
+    const firstTime = Math.min(...txs.map(t => t.time));
+    const firstDate = App.Util.isoDate(new Date(firstTime));
+    const twCodes = [...new Set(txs.map(t => t.symbol))]
+      .filter(c => App.Util.normalizeMarketKey((mmap[c] && mmap[c].market) || App.Util.guessMarketBySymbol(c)) !== App.Util.Market.us);
+    await Api.fetchFx();
+    const hist = await Api.fetchTwHistory(twCodes, firstDate);
+    const n = C.rebuildSnapshots(hist, S.getFxRate());
+    C.saveTodaySnapshot();          // 今天用即時價覆蓋
+    if (App.Sync) App.Sync.markDirty();
+    renderCurrent();
+    return n;
+  }
+
   // 對外
   App.renderCurrent = renderCurrent;
   App.afterDataChange = afterDataChange;
   App.switchTab = switchTab;
   App.refresh = refresh;
+  App.rebuildHistory = rebuildHistory;
 
   // 初始化
   function init() {
