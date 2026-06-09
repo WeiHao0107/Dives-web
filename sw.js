@@ -1,7 +1,7 @@
 /* =========================================================================
  * sw.js — Service Worker：App 殼層離線快取（網路優先抓報價，殼層快取優先）
  * ======================================================================= */
-const CACHE = 'dives-v7';
+const CACHE = 'dives-v8';
 const SHELL = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const SHELL = [
   './js/charts.js',
   './js/ui.js',
   './js/sync.js',
+  './js/auth.js',
   './js/views.js',
   './js/app.js',
   './manifest.webmanifest',

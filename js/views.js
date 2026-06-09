@@ -445,6 +445,11 @@ App.Views = (function () {
     </div>
 
     <div class="card setting-card">
+      <div class="set-title">App 鎖定</div>
+      <div id="lock-body"></div>
+    </div>
+
+    <div class="card setting-card">
       <div class="set-title">資料備份</div>
       <button class="btn btn-block btn-primary" id="btn-export">匯出備份（交易 + 快照）</button>
       <label class="btn btn-block btn-ghost" for="file-import">匯入備份</label>
@@ -540,6 +545,71 @@ App.Views = (function () {
       UI.confirmDialog('確定清空所有交易、損益與快照？此動作無法復原。', () => {
         S.clearAll(); UI.toast('已清空所有資料', 'info'); App.afterDataChange([]);
       }, '清空'));
+
+    // ── App 鎖定 ──
+    renderLockBody(root.querySelector('#lock-body'), root);
+  }
+
+  async function renderLockBody(el, root) {
+    if (!el || !App.Auth) return;
+    const A = App.Auth;
+    if (!A.isEnabled()) {
+      el.innerHTML = `<div class="set-hint">啟用後，開啟 App 需以密碼或 Face ID 解鎖（資料仍存本機）</div>
+        <button class="btn btn-block btn-primary" id="lock-enable" style="margin-top:8px">啟用 App 鎖定</button>`;
+      el.querySelector('#lock-enable').addEventListener('click', () => openLockSetup(false, () => settings(root)));
+      return;
+    }
+    const faceAvail = await A.isWebAuthnAvailable();
+    const hasFace = A.hasWebAuthn();
+    const t = A.getTimeout();
+    el.innerHTML = `
+      <div class="lock-row"><span>密碼</span><button class="btn btn-ghost btn-sm" id="lock-chpin">變更</button></div>
+      ${faceAvail ? `<div class="lock-row"><span>Face ID / Touch ID</span><label class="switch"><input type="checkbox" id="lock-face" ${hasFace ? 'checked' : ''}><span></span></label></div>`
+        : `<div class="set-hint">此裝置不支援生物辨識</div>`}
+      <div class="lock-row"><span>自動鎖定</span>
+        <select class="select" id="lock-timeout">
+          <option value="0">立即</option><option value="1">1 分鐘</option>
+          <option value="5">5 分鐘</option><option value="15">15 分鐘</option><option value="60">1 小時</option>
+        </select></div>
+      <button class="btn btn-block btn-danger" id="lock-disable" style="margin-top:10px">停用 App 鎖定</button>`;
+    el.querySelector('#lock-timeout').value = String(t);
+    el.querySelector('#lock-chpin').addEventListener('click', () => openLockSetup(true, () => UI.toast('密碼已變更', 'success')));
+    el.querySelector('#lock-timeout').addEventListener('change', e => { A.setTimeout(+e.target.value); UI.toast('已更新自動鎖定', 'success'); });
+    el.querySelector('#lock-disable').addEventListener('click', () =>
+      UI.confirmDialog('停用 App 鎖定？開啟 App 將不再需要驗證。', () => { A.disable(); UI.toast('已停用 App 鎖定', 'info'); settings(root); }, '停用'));
+    const faceToggle = el.querySelector('#lock-face');
+    if (faceToggle) faceToggle.addEventListener('change', async () => {
+      if (faceToggle.checked) {
+        try { await A.registerWebAuthn(); UI.toast('已啟用 Face ID', 'success'); }
+        catch (e) { faceToggle.checked = false; UI.toast('Face ID 設定取消或失敗', 'error'); }
+      } else { A.disableWebAuthn(); UI.toast('已關閉 Face ID', 'info'); }
+    });
+  }
+
+  // PIN 設定 / 變更：輸入兩次確認（4–6 碼）
+  function openLockSetup(isChange, onDone) {
+    const body = `
+      <label class="fld">設定密碼（4–6 位數字）
+        <input class="input" id="pin1" type="password" inputmode="numeric" maxlength="6" placeholder="輸入密碼">
+      </label>
+      <label class="fld">再次輸入
+        <input class="input" id="pin2" type="password" inputmode="numeric" maxlength="6" placeholder="再次輸入">
+      </label>
+      <div class="set-hint" id="pin-err" style="color:${UI.LOSS};min-height:16px"></div>`;
+    const ov = UI.openSheet(isChange ? '變更密碼' : '設定 App 鎖定密碼', body,
+      `<button class="btn btn-ghost" id="pin-cancel">取消</button><button class="btn btn-primary" id="pin-ok">確認</button>`);
+    const $ = s => ov.querySelector(s);
+    $('#pin-cancel').addEventListener('click', UI.closeSheet);
+    $('#pin1').focus();
+    $('#pin-ok').addEventListener('click', async () => {
+      const p1 = $('#pin1').value, p2 = $('#pin2').value;
+      if (!/^\d{4,6}$/.test(p1)) { $('#pin-err').textContent = '請輸入 4–6 位數字'; return; }
+      if (p1 !== p2) { $('#pin-err').textContent = '兩次輸入不一致'; return; }
+      if (isChange) await App.Auth.setPin(p1);
+      else await App.Auth.enable(p1);
+      UI.closeSheet();
+      onDone && onDone();
+    });
   }
 
   function doExport() {

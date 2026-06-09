@@ -90,7 +90,31 @@
     // 從快取立即顯示
     renderCurrent();
 
-    // 啟用同步時：先從雲端拉最新，再刷新報價
+    // App 鎖定：啟用則先顯示鎖定畫面，解鎖後才進背景作業
+    if (App.Auth && App.Auth.isEnabled()) {
+      App.Auth.showLock(startBackground);
+    } else {
+      startBackground();
+    }
+
+    // 回到前景：背景超過逾時則重新鎖定，否則同步 + 視情況刷新
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState === 'hidden') { if (App.Auth) App.Auth.noteHidden(); return; }
+      if (App.Auth && App.Auth.shouldRelock()) {
+        App.Auth.showLock(() => { foregroundSync(); });
+        return;
+      }
+      foregroundSync();
+    });
+
+    // 註冊 Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+  }
+
+  // 啟動後的背景作業：雲端拉取 + 報價刷新 + 預載台股代碼表
+  function startBackground() {
     (async () => {
       if (App.Sync && App.Sync.enabled()) {
         const r = await App.Sync.pull();
@@ -100,22 +124,15 @@
       if (hasTx) refresh();
       Api.loadTwUniverse(false).catch(() => {});
     })();
+  }
 
-    // 回到前景時：先拉雲端，再視情況刷新報價
-    document.addEventListener('visibilitychange', async () => {
-      if (document.visibilityState !== 'visible') return;
-      if (App.Sync && App.Sync.enabled()) {
-        const r = await App.Sync.pull();
-        if (r.changed) renderCurrent();
-      }
-      const ts = S.getPricesTs();
-      if (!ts || Date.now() - ts > 600000) refresh();
-    });
-
-    // 註冊 Service Worker
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+  async function foregroundSync() {
+    if (App.Sync && App.Sync.enabled()) {
+      const r = await App.Sync.pull();
+      if (r.changed) renderCurrent();
     }
+    const ts = S.getPricesTs();
+    if (!ts || Date.now() - ts > 600000) refresh();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
