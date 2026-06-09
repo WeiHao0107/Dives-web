@@ -143,7 +143,7 @@ App.Views = (function () {
   }
 
   /* ===================== 歷史 ===================== */
-  const hist = { tab: 'trend', range: 'ytd', txFilter: 'all', search: '' };
+  const hist = { tab: 'tx', range: 'ytd', txFilter: 'all', search: '' };
   const RANGES = [['1m', '1M'], ['3m', '3M'], ['6m', '6M'], ['ytd', 'YTD'], ['1y', '1Y'], ['all', '全部']];
 
   function history(root) {
@@ -252,7 +252,7 @@ App.Views = (function () {
   }
 
   /* ===================== 報表 ===================== */
-  const rep = { mode: 'yearly', year: new Date().getFullYear(), col: null, asc: false };
+  const rep = { mode: 'yearly', year: new Date().getFullYear(), col: null, asc: true };
   // 欄位 → 圖表標題 / 表頭底線色（藍：淨資產/投入；綠：損益/已未實現）
   const REP_COLS = {
     netAsset: { title: '淨資產', underline: '#4A82C8' },
