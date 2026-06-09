@@ -253,7 +253,8 @@ input, select { font-family: inherit; font-size: 15px; }
 .pin-key { height: 72px; border-radius: 50%; font-size: 26px; font-weight: 500; background: var(--soft); color: var(--text); }
 .pin-key:active { background: var(--divider); }
 .pin-key.empty { background: transparent; pointer-events: none; }
-.faceid-btn { margin-top: 24px; padding: 12px 26px; border-radius: 12px; background: var(--primary); color: #fff; font-size: 15px; font-weight: 600; }
+.faceid-btn { margin-top: 24px; padding: 12px 22px; border-radius: 12px; background: var(--primary); color: #fff; font-size: 15px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+.faceid-btn svg { width: 22px; height: 22px; }
 
 /* ---- Lock settings rows ---- */
 .lock-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--divider); }

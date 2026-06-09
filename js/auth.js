@@ -118,7 +118,10 @@ App.Auth = (function () {
         <div class="lock-sub" id="lock-sub">輸入密碼解鎖</div>
         <div class="pin-dots" id="pin-dots"></div>
         <div class="pin-pad" id="pin-pad"></div>
-        ${faceEnabled ? `<button class="faceid-btn" id="faceid-btn">😊 使用 Face ID</button>` : ''}
+        ${faceEnabled ? `<button class="faceid-btn" id="faceid-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1"/><path d="M15 9.5v1"/><path d="M12 9v3.5"/><path d="M9.2 15c.8.7 1.8 1 2.8 1s2-.3 2.8-1"/></svg>
+          <span id="faceid-label">使用 Face ID</span>
+        </button>` : ''}
       </div>`;
     document.body.appendChild(ov);
 
@@ -157,21 +160,22 @@ App.Auth = (function () {
     }));
 
     const faceBtn = ov.querySelector('#faceid-btn');
+    const setFaceLabel = txt => { const l = faceBtn && faceBtn.querySelector('#faceid-label'); if (l) l.textContent = txt; };
     if (faceBtn) faceBtn.addEventListener('click', async () => {
-      faceBtn.textContent = '驗證中…';
+      setFaceLabel('驗證中…');
       const ok = await tryFaceId();
       if (ok) unlock();
-      else { faceBtn.textContent = '😊 使用 Face ID'; subEl.textContent = 'Face ID 失敗，可改用密碼'; }
+      else { setFaceLabel('使用 Face ID'); subEl.textContent = 'Face ID 失敗，可改用密碼'; }
     });
 
     // 已設定 Face ID → 進入即自動觸發（部分平台需手勢，失敗則退回按鈕/PIN）
     if (faceEnabled) {
       window.setTimeout(async () => {
         if (!document.getElementById('lock-overlay')) return; // 已解鎖
-        if (faceBtn) faceBtn.textContent = '驗證中…';
+        setFaceLabel('驗證中…');
         const ok = await tryFaceId();
         if (ok) { unlock(); return; }
-        if (faceBtn) faceBtn.textContent = '😊 使用 Face ID';
+        setFaceLabel('使用 Face ID');
         subEl.textContent = '請用 Face ID 或輸入密碼';
       }, 250);
     }
