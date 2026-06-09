@@ -163,6 +163,18 @@ App.Auth = (function () {
       if (ok) unlock();
       else { faceBtn.textContent = '😊 使用 Face ID'; subEl.textContent = 'Face ID 失敗，可改用密碼'; }
     });
+
+    // 已設定 Face ID → 進入即自動觸發（部分平台需手勢，失敗則退回按鈕/PIN）
+    if (faceEnabled) {
+      window.setTimeout(async () => {
+        if (!document.getElementById('lock-overlay')) return; // 已解鎖
+        if (faceBtn) faceBtn.textContent = '驗證中…';
+        const ok = await tryFaceId();
+        if (ok) { unlock(); return; }
+        if (faceBtn) faceBtn.textContent = '😊 使用 Face ID';
+        subEl.textContent = '請用 Face ID 或輸入密碼';
+      }, 250);
+    }
   }
 
   function unlock() {
