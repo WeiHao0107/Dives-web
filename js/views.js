@@ -5,7 +5,7 @@ window.App = window.App || {};
 
 App.Views = (function () {
   const U = App.Util, S = App.Store, C = App.Calc, UI = App.UI;
-  const COL = { tw: '#2563EB', us: '#F59E0B', total: '#0F766E' };
+  const COL = { tw: '#E8823C', us: '#4A82C8', total: '#0F766E' }; // 與走勢圖一致：台股橙、美股藍
 
   // 共用：刷新後重繪目前分頁
   function rerender() { App.renderCurrent(); }
@@ -179,13 +179,9 @@ App.Views = (function () {
       b.addEventListener('click', () => { hist.range = b.dataset.v; histTrend(body); }));
 
     const snaps = filterByRange(S.getSnapshots());
-    const points = snaps.map(s => ({ date: new Date(s.date + 'T00:00:00+08:00'), values: { tw: s.twMarketValue, us: s.usMarketValueTwd, total: s.netAsset } }));
+    const points = snaps.map(s => ({ date: new Date(s.date + 'T00:00:00+08:00'), values: { tw: s.twMarketValue, us: s.usMarketValueTwd } }));
     App.Charts.trend(body.querySelector('#trend-chart'), points, {
-      keys: [
-        { key: 'tw', color: COL.tw, label: '台股', fill: true },
-        { key: 'us', color: COL.us, label: '美股', fill: true },
-        { key: 'total', color: COL.total, label: '總資產' },
-      ],
+      twKey: 'tw', usKey: 'us', twLabel: '台股', usLabel: '美股',
       xLabels: monthLabels(points),
       valueFmt: v => 'NT$ ' + U.fmtKMBB(v),
     });
@@ -256,7 +252,14 @@ App.Views = (function () {
   }
 
   /* ===================== 報表 ===================== */
-  const rep = { mode: 'yearly', year: new Date().getFullYear() };
+  const rep = { mode: 'yearly', year: new Date().getFullYear(), col: null, asc: false };
+  // 欄位 → 圖表標題 / 表頭底線色（藍：淨資產/投入；綠：損益/已未實現）
+  const REP_COLS = {
+    netAsset: { title: '淨資產', underline: '#4A82C8' },
+    newInvestment: { title: '本期投入', underline: '#4A82C8' },
+    periodPnl: { title: '本期損益', underline: '#3DAA6A' },
+    realizedUnrealized: { title: '未實現 / 已實現', underline: '#3DAA6A' },
+  };
 
   function periodReports() {
     const snaps = S.getSnapshots().slice().sort((a, b) => a.date < b.date ? -1 : 1);
@@ -325,17 +328,23 @@ App.Views = (function () {
       ${bcol('未實現', U.fmtBannerSigned(latest.unrealizedPnl), UI.pnlColor(latest.unrealizedPnl))}
     </div>`;
 
-    // 走勢圖
-    html += `<div class="card"><div class="chart-host" id="rep-chart"></div></div>`;
+    // 圖表（標題隨選取欄位變化；無選取＝資產走勢圖）
+    const chartTitle = rep.col ? REP_COLS[rep.col].title : '資產走勢圖';
+    html += `<div class="card"><div class="chart-title">${chartTitle}</div><div class="chart-host" id="rep-chart"></div></div>`;
 
-    // 表格
+    // 表格（表頭可點擊切換圖表）
+    const ulOf = c => rep.col === c ? `border-bottom:2px solid ${REP_COLS[c].underline}` : '';
+    const acOf = c => rep.col === c ? 'active' : '';
     html += `<div class="card rep-table">
       <div class="rt-head">
-        <span class="c0">期間</span><span>淨資產</span><span>本期投入</span>
-        <span>本期損益<br><i>${rep.mode === 'yearly' ? '年報酬率' : '月報酬率'}</i></span>
-        <span>未實現<br><i>已實現</i></span>
+        <span class="c0 rt-sort" data-sort="1">期間 ${rep.asc ? '▲' : '▼'}</span>
+        <span class="rt-h ${acOf('netAsset')}" data-col="netAsset" style="${ulOf('netAsset')}">淨資產</span>
+        <span class="rt-h ${acOf('newInvestment')}" data-col="newInvestment" style="${ulOf('newInvestment')}">本期投入</span>
+        <span class="rt-h ${acOf('periodPnl')}" data-col="periodPnl" style="${ulOf('periodPnl')}">本期損益<br><i>${rep.mode === 'yearly' ? '年報酬率' : '月報酬率'}</i></span>
+        <span class="rt-h ${acOf('realizedUnrealized')}" data-col="realizedUnrealized" style="${ulOf('realizedUnrealized')}">未實現<br><i>已實現</i></span>
       </div>`;
-    for (const r of [...reports].reverse()) {
+    const rowsOrder = rep.asc ? reports : [...reports].reverse();
+    for (const r of rowsOrder) {
       html += `<div class="rt-row">
         <span class="c0">${r.label}</span>
         <span>${U.fmtBanner(r.netAsset)}</span>
@@ -348,19 +357,28 @@ App.Views = (function () {
     root.innerHTML = html;
     bindReportTop(root, years);
 
-    // 資產走勢圖（年度=全部快照、月度=當年）
-    let snaps = S.getSnapshots().slice().sort((a, b) => a.date < b.date ? -1 : 1);
-    if (rep.mode === 'monthly') snaps = snaps.filter(s => s.date.slice(0, 4) === String(rep.year));
-    const points = snaps.map(s => ({ date: new Date(s.date + 'T00:00:00+08:00'), values: { tw: s.twMarketValue, us: s.usMarketValueTwd, total: s.netAsset } }));
-    App.Charts.trend(root.querySelector('#rep-chart'), points, {
-      keys: [
-        { key: 'tw', color: COL.tw, label: '台股', fill: true },
-        { key: 'us', color: COL.us, label: '美股', fill: true },
-        { key: 'total', color: COL.total, label: '總資產' },
-      ],
-      xLabels: repXLabels(points),
-      valueFmt: v => 'NT$ ' + U.fmtKMBB(v),
-    });
+    // 表頭點擊：切換對應欄位圖表（再點一次回走勢圖）
+    root.querySelectorAll('.rt-h').forEach(h => h.addEventListener('click', () => {
+      rep.col = (rep.col === h.dataset.col) ? null : h.dataset.col;
+      report(root);
+    }));
+    const sortBtn = root.querySelector('.rt-sort');
+    if (sortBtn) sortBtn.addEventListener('click', () => { rep.asc = !rep.asc; report(root); });
+
+    // 繪製圖表
+    const host = root.querySelector('#rep-chart');
+    if (rep.col) {
+      App.Charts.reportColumn(host, reports, rep.col);
+    } else {
+      let snaps = S.getSnapshots().slice().sort((a, b) => a.date < b.date ? -1 : 1);
+      if (rep.mode === 'monthly') snaps = snaps.filter(s => s.date.slice(0, 4) === String(rep.year));
+      const points = snaps.map(s => ({ date: new Date(s.date + 'T00:00:00+08:00'), values: { tw: s.twMarketValue, us: s.usMarketValueTwd } }));
+      App.Charts.trend(host, points, {
+        twKey: 'tw', usKey: 'us', twLabel: '台股', usLabel: '美股',
+        xLabels: repXLabels(points),
+        valueFmt: v => 'NT$ ' + U.fmtKMBB(v),
+      });
+    }
   }
   function seg3(v, label, cur) { return `<button class="seg-btn ${cur === v ? 'active' : ''}" data-v="${v}">${label}</button>`; }
   function bcol(k, v, color) { return `<div class="bc"><div class="k">${k}</div><div class="v" style="color:${color}">${v}</div></div>`; }

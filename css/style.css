@@ -128,6 +128,10 @@ input, select { font-family: inherit; font-size: 15px; }
 .rt-row .c0 { font-weight: 700; font-size: 13px; }
 .rt-row b { font-size: 12px; font-weight: 700; }
 .rt-row i { font-style: normal; font-size: 11px; }
+.rt-h { cursor: pointer; padding-bottom: 3px; transition: color .15s; }
+.rt-h.active { color: var(--text); font-weight: 700; }
+.rt-sort { cursor: pointer; }
+.chart-title { font-size: 13px; font-weight: 700; color: var(--text); padding: 2px 2px 8px; }
 
 /* ---- TX list ---- */
 .search { width: 100%; margin-bottom: 10px; }
@@ -177,10 +181,10 @@ input, select { font-family: inherit; font-size: 15px; }
   background: rgba(255,255,255,0.94); backdrop-filter: saturate(180%) blur(12px);
   border-top: 1px solid var(--divider); display: flex; z-index: 50;
 }
-.tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; color: var(--sub); }
-.tab-btn .ti { font-size: 20px; filter: grayscale(1); opacity: 0.6; }
-.tab-btn.active { color: var(--text); font-weight: 600; }
-.tab-btn.active .ti { filter: none; opacity: 1; }
+.tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 11px; color: var(--sub); }
+.tab-btn .ti { display: flex; align-items: center; justify-content: center; height: 24px; }
+.tab-btn .ti svg { width: 23px; height: 23px; }
+.tab-btn.active { color: var(--primary); font-weight: 600; }
 
 /* ---- Sheet ---- */
 .sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 100; display: flex; align-items: flex-end; opacity: 0; transition: opacity 0.25s; }
