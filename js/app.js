@@ -40,12 +40,17 @@
 
   // 報價刷新
   let refreshing = false;
-  async function refresh(symbols) {
+  async function refresh(symbols, doSync) {
     if (refreshing) return;
     refreshing = true;
     const btn = document.getElementById('refresh-btn');
     btn && btn.classList.add('spin');
     try {
+      // 手動重新整理時先做雲端同步（雙向：遠端較新則拉、本機較新則推）
+      if (doSync && App.Sync && App.Sync.enabled()) {
+        const r = await App.Sync.pull();
+        if (r.changed) renderCurrent();
+      }
       await Api.refreshPrices(symbols);
       const isNewDay = C.saveTodaySnapshot();
       if (isNewDay && App.Sync) App.Sync.markDirty(); // 新的一天快照 → 同步
@@ -80,7 +85,7 @@
     document.querySelectorAll('.tab-btn').forEach(b =>
       b.addEventListener('click', () => switchTab(b.dataset.tab)));
     document.getElementById('fab').addEventListener('click', () => V.openTxForm(null));
-    document.getElementById('refresh-btn').addEventListener('click', () => refresh());
+    document.getElementById('refresh-btn').addEventListener('click', () => refresh(undefined, true));
 
     // 從快取立即顯示
     renderCurrent();
