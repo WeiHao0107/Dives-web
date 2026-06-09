@@ -83,6 +83,34 @@ App.Api = (function () {
     } catch (e) { return null; }
   }
 
+  // ---- 台股盤中即時（TWSE MIS，經 proxy；可批次多檔）----
+  // 回傳 {code: {price, dailyChange, prevClose}}；盤中時段使用
+  async function fetchTwRealtime(metas) {
+    const exch = metas.map(m => {
+      const prefix = U.normalizeMarketKey(m.market) === U.Market.otc ? 'otc' : 'tse';
+      return prefix + '_' + m.code + '.tw';
+    });
+    const out = {};
+    for (let i = 0; i < exch.length; i += 50) {
+      const chunk = exch.slice(i, i + 50).join('|');
+      try {
+        const url = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch=' + encodeURIComponent(chunk);
+        const j = await fetchJson(url);
+        for (const it of (j.msgArray || [])) {
+          const code = (it.c || ((it.key || '').split('_')[1] || '').split('.')[0] || '').trim();
+          if (!code) continue;
+          let price = U.parseNum(it.z);                       // 最近成交價
+          if (price == null) price = U.parseNum(it.pz);       // 無成交→揭示價
+          if (price == null) price = U.parseNum(it.o);        // →開盤
+          if (price == null) continue;
+          const prev = U.parseNum(it.y);                      // 昨收
+          out[code] = { price, dailyChange: prev != null ? price - prev : 0, prevClose: prev };
+        }
+      } catch (e) { console.warn('MIS realtime failed', e); }
+    }
+    return out;
+  }
+
   // ---- 美股單檔報價（Finnhub）----
   async function fetchUsQuote(symbol) {
     try {
@@ -131,10 +159,17 @@ App.Api = (function () {
     // 匯率
     const fxP = fetchFx();
 
-    // 台股：FinMind 逐檔抓取（3 並發，尊重免費速率），名稱由代碼表補齊
+    // 台股：盤中用 MIS 即時，其餘（或非盤中）用 FinMind 日收盤；名稱由代碼表補齊
     if (twMetas.length) {
       const uniP = loadTwUniverse(false).catch(() => ({}));
-      const queue = [...twMetas];
+      // 盤中先抓 MIS 即時
+      let realtime = {};
+      if (U.shouldUseMisRealtime()) {
+        realtime = await fetchTwRealtime(twMetas);
+        for (const code in realtime) prices[code] = realtime[code];
+      }
+      // MIS 沒拿到的（或非盤中）改用 FinMind 日收盤
+      const queue = twMetas.filter(m => !realtime[m.code]);
       async function twWorker() {
         while (queue.length) {
           const m = queue.shift();
@@ -214,5 +249,5 @@ App.Api = (function () {
     return results.slice(0, 30);
   }
 
-  return { fetchText, fetchJson, loadTwUniverse, fetchTwPrice, fetchUsQuote, fetchFx, refreshPrices, searchSymbols, finnhubKey };
+  return { fetchText, fetchJson, loadTwUniverse, fetchTwPrice, fetchTwRealtime, fetchUsQuote, fetchFx, refreshPrices, searchSymbols, finnhubKey };
 })();

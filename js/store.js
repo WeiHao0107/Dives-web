@@ -88,7 +88,7 @@ App.Store = (function () {
 
   // ---- CORS proxy ----
   function getProxy() {
-    return localStorage.getItem(K.proxy) || 'https://api.allorigins.win/raw?url=';
+    return localStorage.getItem(K.proxy) || 'https://corsproxy.io/?url=';
   }
   function setProxy(p) { localStorage.setItem(K.proxy, p || ''); }
 
