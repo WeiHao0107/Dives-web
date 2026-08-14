@@ -935,7 +935,20 @@ App.Views = (function () {
         ${addWithRefreshHtml('as-add-btn', '新增')}
       </div>
     </div>`;
-    let html = ''; // 捲動內容：分類卡
+    // 槓桿比例卡
+    const lev = C.computeLeverageRatio();
+    const levColor = lev.ratio == null ? 'var(--sub)' : lev.ratio > 2 ? '#FF3B30' : lev.ratio > 1.5 ? '#FF9500' : lev.ratio > 1 ? '#FFCC00' : '#34C759';
+    const levTxt = lev.ratio == null ? '–' : lev.ratio.toFixed(2) + 'x';
+    const expMap = S.getExposureMap();
+    const hasCustomExp = Object.keys(expMap).length > 0;
+    let html = `<div class="card lev-card" id="lev-card">
+      <div class="lev-main">
+        <div class="lev-label">槓桿比例</div>
+        <div class="lev-val" style="color:${levColor}">${levTxt}</div>
+        <div class="lev-formula">曝險 ${U.fmtWhole(lev.exposureTwd)} / 淨資產 ${U.fmtWhole(lev.netAssets)}</div>
+      </div>
+      ${hasCustomExp ? `<div class="lev-hint">含自訂曝險標的</div>` : ''}
+    </div>`; // 捲動內容：分類卡
 
     // 收合摘要文字 + 更新日期
     const cashAccts = S.getCashAccounts();
@@ -946,8 +959,8 @@ App.Views = (function () {
     const investSummary = [...groups.map(g => g.name), ungrouped.length ? '獨立持股' : null].filter(Boolean).join('、') || '尚無持倉';
     const liabSummary = liabs.map(a => a.name).join('、') || '尚無負債';
 
-    // 佔總資產比例（總資產 = 流動資金 + 投資）
-    const grossAssets = sum.cashTwd + sum.investTwd;
+    // 佔總資產比例（總資產 = 流動資金 + 投資 + 負債；三類加總 = 100%）
+    const grossAssets = sum.cashTwd + sum.investTwd + sum.liabTwd;
     const pctOfAssets = v => grossAssets > 1e-9 ? v / grossAssets * 100 : 0;
 
     // 佔比環形圈（依類別上色、圈內顯示百分比；放大以容納 100%）
@@ -1032,9 +1045,11 @@ App.Views = (function () {
         const d = basis === 'group' ? sum.investTwd : denom(0); // 未分組無「組內」→ 用投資
         const pct = d > 1e-9 ? mv / d * 100 : 0;
         const isUsd = U.normalizeMarketKey(p.market) !== U.Market.tse && U.normalizeMarketKey(p.market) !== U.Market.otc && U.normalizeMarketKey(p.market) !== U.Market.rotc;
+        const expMul = expMap[p.symbol] || 1;
+        const expBadge = expMul !== 1 ? `<span class="exp-badge">${expMul}x</span>` : '';
         html += `<div class="as-row member top" data-sym="${p.symbol}">
           <span class="pct-badge sm">${fmtPctBadge(pct)}</span>
-          <div class="as-main"><div class="as-title">${p.symbol} <span class="h-name">${p.name}</span></div>
+          <div class="as-main"><div class="as-title">${p.symbol} <span class="h-name">${p.name}</span>${expBadge}</div>
             <div class="as-sub">持有 ${U.formatShares(p.shares)}, ${isUsd ? '$' : ''}${U.formatPrice(p.lastPrice != null ? p.lastPrice : p.avgCost)}</div></div>
           <div class="as-val">${U.fmtWhole(mv)}</div>
         </div>`;
@@ -1089,7 +1104,7 @@ App.Views = (function () {
       as.detailGroup = g.dataset.gid; assets(root);
     }));
     root.querySelectorAll('.as-row.member').forEach(r => r.addEventListener('click', () =>
-      openGroupAssign(r.dataset.sym, () => assets(root))));
+      openAssetSymbolMenu(r.dataset.sym, () => assets(root))));
     maskAmounts(root);
   }
 
@@ -1245,11 +1260,12 @@ App.Views = (function () {
     const members = C.buildPositions().filter(p => gmap[p.symbol] === gid);
     const gTotal = members.reduce((s, p) => s + mvTwdOf(p, rate), 0);
     const basis = S.getPctBasis();
-    const denomV = basis === 'group' ? (gTotal || 1) : basis === 'invest' ? sum.investTwd : sum.netWorth;
+    const denomV = gTotal || 1; // 群組詳情頁一律以組內合計為分母，確保持倉佔比加總 = 100%
     members.sort((a, b) => as.detailAsc ? mvTwdOf(a, rate) - mvTwdOf(b, rate) : mvTwdOf(b, rate) - mvTwdOf(a, rate));
     const fmtPctBadge = v => (v >= 9.95 ? Math.round(v) : v.toFixed(v >= 1 ? 0 : 1)) + '%';
     const updTs = S.getPricesTs();
     const updDate = updTs ? U.isoDate(new Date(updTs)) : '';
+    const expMap = S.getExposureMap();
 
     const topHtml = `<div class="gd-head">
       <button class="gd-back" aria-label="返回">‹</button>
@@ -1270,10 +1286,12 @@ App.Views = (function () {
       const mv = mvTwdOf(p, rate);
       const pct = denomV > 1e-9 ? mv / denomV * 100 : 0;
       const isUsd = U.normalizeMarketKey(p.market) !== U.Market.tse && U.normalizeMarketKey(p.market) !== U.Market.otc && U.normalizeMarketKey(p.market) !== U.Market.rotc;
+      const expMul = expMap[p.symbol] || 1;
+      const expBadge = expMul !== 1 ? `<span class="exp-badge">${expMul}x</span>` : '';
       listHtml += `<div class="card gd-row" data-sym="${p.symbol}">
         <span class="pct-badge">${fmtPctBadge(pct)}</span>
         <div class="as-main">
-          <div class="gd-sym">${p.symbol} <span class="h-name">${p.name !== p.symbol ? p.name : ''}</span></div>
+          <div class="gd-sym">${p.symbol} <span class="h-name">${p.name !== p.symbol ? p.name : ''}</span>${expBadge}</div>
           <div class="as-sub">持有 ${U.formatShares(p.shares)}, ${isUsd ? '$' : ''}${U.formatPrice(p.lastPrice != null ? p.lastPrice : p.avgCost)}</div>
         </div>
         <div class="gd-val">
@@ -1292,7 +1310,73 @@ App.Views = (function () {
     root.querySelector('.gd-plus').addEventListener('click', () =>
       openTxForm(null, null, { onAdded: sym => { const m = S.getGroupMap(); m[sym] = gid; S.setGroupMap(m); if (App.Sync) App.Sync.markDirty(); } }));
     root.querySelectorAll('.gd-row').forEach(r => r.addEventListener('click', () =>
-      openGroupAssign(r.dataset.sym, () => assets(root))));
+      openAssetSymbolMenu(r.dataset.sym, () => assets(root))));
+  }
+
+  // 資產頁持倉行動選單：群組指派 ＋ 曝險比例設定
+  function openAssetSymbolMenu(sym, onDone) {
+    const expMap = S.getExposureMap();
+    const cur = expMap[sym] || 1;
+    const curLabel = cur === 1 ? '100%（原形）' : (cur * 100).toFixed(0) + '%（' + cur + 'x）';
+    const body = `<div class="chooser">
+      <button class="chooser-row" id="asm-group">
+        <div class="chooser-txt"><div class="chooser-label">加入群組</div><div class="chooser-hint">調整此標的所屬群組</div></div>
+        <span class="s-chev">›</span>
+      </button>
+      <button class="chooser-row" id="asm-exp">
+        <div class="chooser-txt"><div class="chooser-label">曝險比例</div><div class="chooser-hint">目前：${curLabel}</div></div>
+        <span class="s-chev">›</span>
+      </button>
+    </div>`;
+    const ov = UI.openSheet(sym, body, '');
+    ov.querySelector('#asm-group').addEventListener('click', () => {
+      UI.closeSheet();
+      openGroupAssign(sym, onDone);
+    });
+    ov.querySelector('#asm-exp').addEventListener('click', () => {
+      UI.closeSheet();
+      openExposureForm(sym, onDone);
+    });
+  }
+
+  // 曝險比例設定 sheet
+  function openExposureForm(sym, onDone) {
+    const expMap = S.getExposureMap();
+    const cur = expMap[sym] || 1;
+    const presets = [
+      { v: '1', label: '100%', hint: '原形股票、一般 ETF' },
+      { v: '2', label: '200%', hint: '正二 ETF（例：00631L）' },
+      { v: '3', label: '300%', hint: '三倍槓桿（例：TQQQ）' },
+      { v: '-1', label: '-100%', hint: '反向 ETF（例：00632R）' },
+      { v: '-2', label: '-200%', hint: '反二 ETF' },
+    ];
+    const presetRows = presets.map(p => `<button class="chooser-row exp-preset" data-v="${p.v}">
+      <div class="chooser-txt"><div class="chooser-label">${p.label}</div><div class="chooser-hint">${p.hint}</div></div>
+      <span class="chooser-check">${parseFloat(p.v) === cur ? '✓' : ''}</span>
+    </button>`).join('');
+    const body = `<div class="exp-form">
+      <div class="fld" style="margin:0 0 12px">
+        <label style="font-size:13px;color:var(--sub);display:block;margin-bottom:6px">自訂倍數（如 1.5）</label>
+        <input class="input" id="exp-custom" type="number" step="0.1" min="-10" max="10" placeholder="例：1.5" value="${cur !== 1 ? cur : ''}">
+      </div>
+      <div style="font-size:13px;color:var(--sub);margin-bottom:6px">快速選擇</div>
+      <div class="chooser">${presetRows}</div>
+    </div>`;
+    const ov = UI.openSheet(`${sym} 曝險比例`, body, `<button class="btn btn-ghost" id="exp-reset">重設為 1x</button><button class="btn btn-primary" id="exp-save">儲存</button>`);
+    const doSave = v => {
+      const n = parseFloat(v);
+      if (!isFinite(n) || n === 0) { UI.toast('請輸入有效的倍數', 'error'); return; }
+      S.setExposureMul(sym, n === 1 ? null : n);
+      if (App.Sync) App.Sync.markDirty();
+      UI.closeSheet(); onDone();
+    };
+    ov.querySelectorAll('.exp-preset').forEach(b => b.addEventListener('click', () => doSave(b.dataset.v)));
+    ov.querySelector('#exp-save').addEventListener('click', () => doSave(ov.querySelector('#exp-custom').value || cur));
+    ov.querySelector('#exp-reset').addEventListener('click', () => {
+      S.setExposureMul(sym, null);
+      if (App.Sync) App.Sync.markDirty();
+      UI.closeSheet(); onDone();
+    });
   }
 
   // 群組走勢頁：折線（市值走勢）/ 長條（漲幅），X 軸 天/週/月/年

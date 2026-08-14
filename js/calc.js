@@ -970,6 +970,30 @@ App.Calc = (function () {
     return { ok: true, paid: pay };
   }
 
+
+  // 槓桿比例 = 曝險市值 / (資產 - 負債)
+  // 曝險市值：每支持倉市值 × 使用者設定的曝險倍數（正二=2，原形=1）
+  // 資產 - 負債 = 流動資金 + 投資市值 - 負債
+  function computeLeverageRatio() {
+    const rate = S.getFxRate() || 31.5;
+    const positions = buildPositions();
+    const expMap = S.getExposureMap();
+    const toTwd = a => (a.currency === 'USD' ? (a.balance || 0) * rate : (a.balance || 0));
+    const cashTwd = S.getCashAccounts().reduce((s, a) => s + toTwd(a), 0);
+    const liabTwd = S.getLiabilities().reduce((s, a) => s + toTwd(a), 0);
+    let investTwd = 0, exposureTwd = 0;
+    for (const p of positions) {
+      const mk = U.normalizeMarketKey(p.market);
+      const mv = (mk === U.Market.us || mk === U.Market.crypto) ? p.marketValue * rate : p.marketValue;
+      const mul = expMap[p.symbol] || 1;
+      investTwd += mv;
+      exposureTwd += mv * mul;
+    }
+    const netAssets = cashTwd + investTwd - liabTwd;
+    const ratio = netAssets > 1e-9 ? exposureTwd / netAssets : null;
+    return { ratio, exposureTwd, netAssets, investTwd, cashTwd, liabTwd };
+  }
+
   return {
     computeAvgCostPosition, buildPositions, buildSummary,
     addTransaction, updateTransaction, deleteTransaction, recomputeRealized,
@@ -977,5 +1001,6 @@ App.Calc = (function () {
     deleteSymbol, saveTodaySnapshot, rebuildSnapshots, assetsSummary, txCashDelta, cashLiabTwd,
     netWorthBuckets, findAbsurdFees, repairFees, buildGroupSeries, tradingStats, scopedStats, xirrRate, buildXirrFlows, portfolioXirr,
     recurringDueDates, isoAddDays, priceOnOrBefore, planFee, applyLiabilityPayment, investedBetween, feesSummary,
+    computeLeverageRatio,
   };
 })();

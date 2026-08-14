@@ -35,6 +35,10 @@ App.Store = (function () {
     privacy: 'dives_privacy',
     chartRange: 'dives_chart_range',
     theme: 'dives_theme',
+    avgdownCfg: 'dives_avgdown_cfg',
+    avgdownStocks: 'dives_avgdown_stocks',
+    avgdownRecords: 'dives_avgdown_records',
+    exposureMap: 'dives_exposure_map',
   };
 
   function read(key, fallback) {
@@ -213,6 +217,16 @@ App.Store = (function () {
     setNotifications([]);
   }
 
+  // ---- 曝險倍數 ----  {symbol: multiplier}（1 = 原形；2 = 正二；預設 1）
+  function getExposureMap() { return read(K.exposureMap, {}); }
+  function setExposureMap(m) { write(K.exposureMap, m); }
+  function setExposureMul(symbol, mul) {
+    const m = getExposureMap();
+    if (mul == null || mul === 1) delete m[symbol]; else m[symbol] = mul;
+    setExposureMap(m);
+  }
+
+
   return {
     uuid,
     getTransactions, setTransactions,
@@ -234,6 +248,7 @@ App.Store = (function () {
     getGroups, setGroups, getGroupMap, setGroupMap,
     getPctBasis, setPctBasis, getDayMode, setDayMode, getTheme, setTheme,
     getPrivacy, setPrivacy, getChartRange, setChartRange,
+    getExposureMap, setExposureMap, setExposureMul,
     clearAll,
   };
 })();
