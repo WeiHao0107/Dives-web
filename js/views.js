@@ -1502,7 +1502,7 @@ App.Views = (function () {
           <button class="fm-btn ${cur0 === 'USD' ? 'active' : ''}" data-c="USD">美金</button>
         </div>
       </label>
-      <label class="fld">${isCash ? '餘額' : '負債金額'}<input class="input" id="mf-bal" type="number" inputmode="decimal" value="${a.balance != null ? a.balance : ''}" placeholder="0"></label>
+      <label class="fld">${isCash ? '餘額' : '負債金額'}<input class="input" id="mf-bal" type="number" inputmode="decimal" value="${a.balance != null ? Math.round(a.balance * 100) / 100 : ''}" placeholder="0"></label>
       <label class="fld">快速增減
         <div class="adj-row">
           <input class="input" id="mf-adj" type="number" inputmode="decimal" placeholder="金額">

@@ -137,7 +137,7 @@ App.Store = (function () {
     const list = getCashAccounts();
     const a = list.find(x => x.id === id);
     if (!a) return false;
-    a.balance = (a.balance || 0) + delta;
+    a.balance = Math.round(((a.balance || 0) + delta) * 100) / 100;   // 金額到分；直接相加會累積浮點誤差（…0700000003）
     setCashAccounts(list);
     return true;
   }

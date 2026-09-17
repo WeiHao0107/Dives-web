@@ -39,3 +39,12 @@ test('buildPositions：兩筆買入 → 加權平均成本；賣出減股數', (
   pos = C.buildPositions().find(p => p.symbol === '2330');
   assert.equal(pos.shares, 150);
 });
+
+test('adjustCashBalance：餘額存到小數 2 位，不累積浮點誤差', () => {
+  S.setCashAccounts([{ id: 'a', name: 'x', currency: 'TWD', balance: 2655534.07 }]);
+  S.adjustCashBalance('a', -245.99);                       // 直接相加會得到 2655288.0799999996
+  assert.equal(S.getCashAccounts()[0].balance, 2655288.08);
+  S.setCashAccounts([{ id: 'b', name: 'y', currency: 'TWD', balance: 0 }]);
+  for (const d of [2150000, 471020, 219600, -1341.34, 35122, -246.63]) S.adjustCashBalance('b', d);
+  assert.equal(S.getCashAccounts()[0].balance, 2874154.03);  // 不是 2874154.0300000003
+});
