@@ -158,5 +158,76 @@ App.Futures = (function () {
     return out.sort((a, b) => b.time - a.time);
   }
 
-  return { MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records };
+  // ---- 交易（含保證金帳戶連動）----
+  function validateTrade(t) {
+    if (!MULT[t.contract]) return '請選擇合約';
+    if (!/^\d{6}$/.test(String(t.month || ''))) return '月份格式須為 YYYYMM';
+    if (!(t.lots > 0) || Math.round(t.lots) !== t.lots) return '口數須為正整數';
+    if (!(t.price > 0)) return '請輸入成交價';
+    return null;
+  }
+  function applyCash(st, delta) { if (st.accountId && delta) S.adjustCashBalance(st.accountId, r2(delta)); }
+  function realizedOf(trades, id) { const ev = replay(trades).events.find(e => e.tradeId === id); return ev ? ev.realizedPnl : 0; }
+
+  // 新增交易：tax 未給則自動算；cash = 已實現 − 手續費 − 稅（有連結帳戶才套用）
+  function addTrade({ contract, month, side, lots, price, fee, tax, time, rollId, note }) {
+    const st = getState();
+    const t = { id: S.uuid(), contract, month: String(month), side: side === 'SELL' ? 'SELL' : 'BUY', lots: +lots, price: +price,
+      fee: r2(+fee || 0), tax: tax != null ? r2(+tax) : taxOf(contract, +price, +lots), time: time || Date.now() };
+    if (rollId) t.rollId = rollId;
+    if (note) t.note = note;
+    const err = validateTrade(t); if (err) return { ok: false, msg: err };
+    const trades = [...st.trades, t];
+    const realized = realizedOf(trades, t.id);
+    t.cash = r2(realized - t.fee - t.tax);
+    st.trades = trades; saveState(st);
+    applyCash(st, t.cash);
+    return { ok: true, trade: t, realized };
+  }
+  function deleteTrade(id) {
+    const st = getState();
+    const t = st.trades.find(x => x.id === id); if (!t) return { ok: false, msg: '找不到交易' };
+    st.trades = st.trades.filter(x => x.id !== id); saveState(st);
+    applyCash(st, -(t.cash || 0));
+    return { ok: true };
+  }
+  // 更新：先沖回舊 cash，改完重播算新 cash 再套用；改價／口數／合約而未指定稅 → 重算稅
+  function updateTrade(id, patch) {
+    const st = getState();
+    const t = st.trades.find(x => x.id === id); if (!t) return { ok: false, msg: '找不到交易' };
+    patch = patch || {};
+    const cand = Object.assign({}, t, patch);
+    if (cand.lots != null) cand.lots = +cand.lots;
+    if (cand.price != null) cand.price = +cand.price;
+    if (cand.fee != null) cand.fee = r2(+cand.fee || 0);
+    if (patch.tax == null && (patch.price != null || patch.lots != null || patch.contract)) cand.tax = taxOf(cand.contract, cand.price, cand.lots);
+    else if (cand.tax != null) cand.tax = r2(+cand.tax);
+    const err = validateTrade(cand); if (err) return { ok: false, msg: err };
+    applyCash(st, -(t.cash || 0));
+    const trades = st.trades.map(x => (x.id === id ? cand : x));
+    cand.cash = r2(realizedOf(trades, id) - cand.fee - cand.tax);
+    st.trades = trades; saveState(st);
+    applyCash(st, cand.cash);
+    return { ok: true, trade: cand };
+  }
+  // 一鍵轉倉：先平近月（反方向）、再開遠月（同方向），兩筆共用 rollId
+  function rollover({ contract, month, toMonth, lots, closePrice, openPrice, time, feePerLot }) {
+    const st = getState();
+    const pos = replay(st.trades).positions.find(p => p.contract === contract && p.month === String(month));
+    if (!pos) return { ok: false, msg: '沒有這個部位' };
+    lots = +lots;
+    if (!(lots > 0) || lots > Math.abs(pos.netLots)) return { ok: false, msg: '口數超過持有（' + Math.abs(pos.netLots) + ' 口）' };
+    if (!(String(toMonth) > String(month))) return { ok: false, msg: '轉倉月份須晚於目前月份' };
+    if (!(closePrice > 0) || !(openPrice > 0)) return { ok: false, msg: '請輸入平倉價與新倉價' };
+    const fpl = feePerLot != null ? +feePerLot : (st.feePerLot[contract] || 0);
+    const rollId = S.uuid(), dir = pos.netLots > 0 ? 1 : -1, ts = time || Date.now();
+    const c = addTrade({ contract, month, side: dir > 0 ? 'SELL' : 'BUY', lots, price: +closePrice, fee: fpl * lots, time: ts, rollId });
+    if (!c.ok) return c;
+    const o = addTrade({ contract, month: toMonth, side: dir > 0 ? 'BUY' : 'SELL', lots, price: +openPrice, fee: fpl * lots, time: ts + 1, rollId });
+    if (!o.ok) { deleteTrade(c.trade.id); return o; }
+    return { ok: true, rollId, closeTrade: c.trade, openTrade: o.trade, realized: c.realized, spread: +openPrice - +closePrice };
+  }
+
+  return { MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
+    addTrade, deleteTrade, updateTrade, rollover };
 })();

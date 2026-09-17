@@ -126,3 +126,62 @@ test('records：轉倉兩筆合併一列（價差、實現、費用）', () => {
   assert.equal(rec[0].lots, 2);
   assert.equal(rec[1].kind, 'trade'); assert.equal(rec[1].closing, false);
 });
+
+test('addTrade：自動期交稅、cash = 已實現−費用 套到保證金帳戶；deleteTrade 沖回', () => {
+  S.setCashAccounts([{ id: 'm1', name: '期貨保證金', currency: 'TWD', balance: 1000000 }]);
+  S.setFutures({ accountId: 'm1' });
+  const a = F.addTrade({ contract: 'TX', month: '202610', side: 'BUY', lots: 2, price: 45900, fee: 120, time: T('2026-08-20') });
+  assert.equal(a.ok, true);
+  assert.equal(a.trade.tax, 367.2);
+  assert.equal(a.trade.cash, -487.2);
+  assert.equal(S.getCashAccounts()[0].balance, 1000000 - 487.2);
+  const c = F.addTrade({ contract: 'TX', month: '202610', side: 'SELL', lots: 1, price: 46900, fee: 60, time: T('2026-09-01') });
+  assert.equal(c.realized, 200000);
+  assert.equal(c.trade.cash, 200000 - 60 - 187.6);
+  assert.ok(Math.abs(S.getCashAccounts()[0].balance - (1000000 - 487.2 + 200000 - 247.6)) < 1e-6);
+  F.deleteTrade(c.trade.id);
+  assert.ok(Math.abs(S.getCashAccounts()[0].balance - (1000000 - 487.2)) < 1e-6);
+  assert.equal(F.getState().trades.length, 1);
+});
+
+test('addTrade：驗證（合約／月份／口數／價格）；未連結帳戶不動現金', () => {
+  assert.equal(F.addTrade({ contract: 'XX', month: '202610', side: 'BUY', lots: 1, price: 1 }).ok, false);
+  assert.equal(F.addTrade({ contract: 'TX', month: '2026-10', side: 'BUY', lots: 1, price: 1 }).ok, false);
+  assert.equal(F.addTrade({ contract: 'TX', month: '202610', side: 'BUY', lots: 0.5, price: 1 }).ok, false);
+  assert.equal(F.addTrade({ contract: 'TX', month: '202610', side: 'BUY', lots: 1, price: 0 }).ok, false);
+  S.setCashAccounts([{ id: 'm1', name: 'x', currency: 'TWD', balance: 5 }]);
+  assert.equal(F.addTrade({ contract: 'TX', month: '202610', side: 'BUY', lots: 1, price: 45000, fee: 60 }).ok, true);
+  assert.equal(S.getCashAccounts()[0].balance, 5); // 未連結
+});
+
+test('updateTrade：沖回舊 cash、套用新 cash；改價重算稅', () => {
+  S.setCashAccounts([{ id: 'm1', name: 'x', currency: 'TWD', balance: 100000 }]);
+  S.setFutures({ accountId: 'm1' });
+  const a = F.addTrade({ contract: 'TX', month: '202610', side: 'BUY', lots: 1, price: 45000, fee: 60, time: T('2026-08-20') });
+  const bal1 = S.getCashAccounts()[0].balance;                         // 100000 − 60 − 180
+  const u = F.updateTrade(a.trade.id, { price: 46000, fee: 100 });
+  assert.equal(u.ok, true);
+  assert.equal(u.trade.tax, 184);
+  assert.ok(Math.abs(S.getCashAccounts()[0].balance - (100000 - 100 - 184)) < 1e-6);
+  assert.notEqual(S.getCashAccounts()[0].balance, bal1);
+});
+
+test('rollover：兩筆同 rollId、已實現、價差、帳戶變動；口數超過持有 → 拒絕', () => {
+  S.setCashAccounts([{ id: 'm1', name: 'x', currency: 'TWD', balance: 2150000 }]);
+  S.setFutures({ accountId: 'm1', feePerLot: { TX: 60 } });
+  F.addTrade({ contract: 'TX', month: '202610', side: 'BUY', lots: 2, price: 45900, fee: 0, tax: 0, time: T('2026-08-20') });
+  const bad = F.rollover({ contract: 'TX', month: '202610', toMonth: '202611', lots: 3, closePrice: 46764, openPrice: 46690, time: T('2026-10-15') });
+  assert.equal(bad.ok, false);
+  const r = F.rollover({ contract: 'TX', month: '202610', toMonth: '202611', lots: 2, closePrice: 46764, openPrice: 46690, time: T('2026-10-15') });
+  assert.equal(r.ok, true);
+  assert.equal(r.realized, 345600);
+  assert.equal(r.spread, -74);
+  assert.equal(r.closeTrade.rollId, r.openTrade.rollId);
+  assert.equal(r.closeTrade.side, 'SELL'); assert.equal(r.openTrade.side, 'BUY');
+  assert.equal(r.closeTrade.fee, 120); assert.equal(r.openTrade.fee, 120);
+  const { positions } = F.replay(F.getState().trades);
+  assert.deepEqual(positions.map(p => [p.month, p.netLots, p.avgEntry]), [['202611', 2, 46690]]);
+  const tax = F.taxOf('TX', 46764, 2) + F.taxOf('TX', 46690, 2);
+  assert.ok(Math.abs(S.getCashAccounts()[0].balance - (2150000 + 345600 - 240 - tax)) < 1e-6);
+  assert.equal(F.rollover({ contract: 'TX', month: '202611', toMonth: '202610', lots: 1, closePrice: 1, openPrice: 1 }).ok, false); // 月份須晚於
+});
