@@ -1708,7 +1708,7 @@ App.Views = (function () {
       reader.onload = async () => {
         const res = App.Csv.importCsv(String(reader.result));
         if (res.ok) {
-          UI.toast(`匯入成功：${res.txCount} 筆交易${res.snapCount ? '、' + res.snapCount + ' 筆快照' : ''}${res.divCount ? '、' + res.divCount + ' 筆股利' : ''}${res.planCount ? '、' + res.planCount + ' 個定期計畫' : ''}`, 'success');
+          UI.toast(`匯入成功：${res.txCount} 筆交易${res.snapCount ? '、' + res.snapCount + ' 筆快照' : ''}${res.divCount ? '、' + res.divCount + ' 筆股利' : ''}${res.planCount ? '、' + res.planCount + ' 個定期計畫' : ''}${res.futCount ? '、' + res.futCount + ' 筆期貨' : ''}`, 'success');
           if (res.feeWarnSymbols && res.feeWarnSymbols.length)
             UI.toast(`⚠️ ${res.feeWarnSymbols.join('、')} 手續費異常偏高，請檢查交易紀錄`, 'error');
           App.afterDataChange();
