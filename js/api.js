@@ -395,10 +395,15 @@ App.Api = (function () {
     }
     return prices;
   }
-  // 期交所保證金一覽表（直連失敗走 proxy）→ {margin, date} 或 null
+  // 期交所保證金一覽表 → {margin, date} 或 null
+  // 期交所直連一定被 CORS 擋 → 先走 r.jina.ai（免金鑰、支援 CORS，回 markdown，parser 也吃）；失敗再試直連／設定的 proxy
+  const TAIFEX_MARGIN_URL = 'https://www.taifex.com.tw/cht/5/indexMarging';
   async function fetchTaifexMargins() {
-    try { return App.Futures.parseTaifexMargins(await fetchText('https://www.taifex.com.tw/cht/5/indexMarging')); }
-    catch (e) { return null; }
+    try {
+      const res = await fetch('https://r.jina.ai/' + TAIFEX_MARGIN_URL, { cache: 'no-store' });
+      if (res.ok) { const r = App.Futures.parseTaifexMargins(await res.text()); if (r) return r; }
+    } catch (e) { /* 下一個來源 */ }
+    try { return App.Futures.parseTaifexMargins(await fetchText(TAIFEX_MARGIN_URL)); } catch (e) { return null; }
   }
 
   // ---- 匯率（open.er-api.com，6 小時快取）----

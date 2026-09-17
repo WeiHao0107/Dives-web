@@ -229,15 +229,18 @@ App.Futures = (function () {
   }
 
   // ---- 外部資料解析（純函式，供 api.js 與測試）----
-  // 期交所「股價指數類保證金一覽表」HTML：<tr> 首欄 臺股期貨／小型臺指／微型臺指，欄序 結算／維持／原始；頁面另有「更新日期：YYYY/MM/DD」
+  // 期交所「股價指數類保證金一覽表」：HTML <tr>（首欄 臺股期貨／小型臺指／微型臺指，欄序 結算／維持／原始）
+  // 或 r.jina.ai 轉出的 markdown 表格列「| 臺股期貨 | 519,000 | 538,000 | 701,000 |」；另抓「更新日期：YYYY/MM/DD」
   function parseTaifexMargins(html) {
     if (!html) return null;
     const strip = x => String(x).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
     const num = x => { const v = parseFloat(String(x).replace(/,/g, '')); return isFinite(v) && v > 0 ? v : null; };
     const NAME = { '臺股期貨': 'TX', '小型臺指': 'MTX', '小型臺指期貨': 'MTX', '微型臺指': 'TMF', '微型臺指期貨': 'TMF' };
     const margin = {};
-    for (const r of (html.match(/<tr[\s\S]*?<\/tr>/gi) || [])) {
-      const cells = (r.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map(strip);
+    const rows = [];
+    for (const r of (html.match(/<tr[\s\S]*?<\/tr>/gi) || [])) rows.push((r.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map(strip));
+    for (const line of html.split('\n')) { const l = line.trim(); if (l.startsWith('|')) rows.push(l.split('|').slice(1, -1).map(c => c.trim())); }
+    for (const cells of rows) {
       if (cells.length < 4) continue;
       const key = NAME[cells[0]];
       if (!key || margin[key]) continue;                 // 「客製化小型臺指期貨」等不在 NAME 內

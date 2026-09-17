@@ -809,7 +809,7 @@ App.Views = (function () {
   /* ===================== 資產（淨資產）===================== */
   // 手風琴：一次只展開一類（cash|invest|liab）；detailGroup = 群組詳情頁
   //   nw/gt 僅保留各自的 metric（走勢/漲幅/投入）與 year（漲幅選年）；時間區間改用共用的 chartRange
-  const as = { openCat: 'invest', detailGroup: null, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
+  const as = { openCat: 'invest', detailGroup: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
     groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null };
   // 所有走勢圖共用的「選擇日期」區間（持久化：關閉程式後重開仍保留同一起始/結束日）
   const chartRange = S.getChartRange();
@@ -881,7 +881,7 @@ App.Views = (function () {
     if (t) t.addEventListener('change', apply);
   }
   // 點「資產」tab 時回到資產首頁（退出群組/走勢/淨資產詳情）
-  function resetAssetsNav() { as.detailGroup = null; as.groupTrend = null; as.catChart = null; }
+  function resetAssetsNav() { as.detailGroup = null; as.groupTrend = null; as.catChart = null; as.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
   const AS_PURPLE = '#6D5FD5';
 
   function mvTwdOf(p, rate) {
@@ -899,10 +899,17 @@ App.Views = (function () {
     if (as.catChart) return metricChartPage(root, as.catChart, () => { as.catChart = null; assets(root); });
     if (as.groupTrend) return groupTrendPage(root, as.groupTrend);
     if (as.detailGroup) return groupDetail(root, as.detailGroup);
+    if (as.detailFut) return App.ViewsFutures.page(root, () => { as.detailFut = false; assets(root); });
     const rate = S.getFxRate() || 31.5;
     const sum = C.assetsSummary();
     const positions = C.buildPositions();
     const groups = S.getGroups();
+    // 期貨：有交易或已連結保證金帳戶才顯示卡；保證金帳戶從流動資金搬到期貨卡（權益數＝餘額＋未平倉），不重複算
+    const futOn = !!(App.ViewsFutures && App.ViewsFutures.visible());
+    const fut = sum.fut;
+    const marginId = futOn && fut ? App.Futures.getState().accountId : null;
+    const marginAcct = marginId ? S.getCashAccounts().find(a => a.id === marginId) : null;
+    const cashShown = sum.cashTwd - (marginAcct ? (marginAcct.balance || 0) : 0);
     const gmap = S.getGroupMap();
     const basis = S.getPctBasis(); // group | invest | net
 
@@ -931,7 +938,7 @@ App.Views = (function () {
     const denom = gTotal => basis === 'group' ? (gTotal || sum.investTwd) : basis === 'invest' ? sum.investTwd : sum.netWorth;
 
     // 今日淨資產漲跌（現金/負債日內不變，故等於投資日損益；紅漲綠跌）
-    const dayChange = (sum.invSummary && sum.invSummary.dayPnl) || 0;
+    const dayChange = ((sum.invSummary && sum.invSummary.dayPnl) || 0) + (futOn && fut ? fut.dayPnl : 0);
     const prevNet = sum.netWorth - dayChange;
     const dayPct = Math.abs(prevNet) > 1e-9 ? dayChange / Math.abs(prevNet) * 100 : 0;
     const dayArrow = dayChange > 0 ? '▲' : dayChange < 0 ? '▼' : '–';
@@ -949,7 +956,7 @@ App.Views = (function () {
     let html = ''; // 捲動內容：分類卡
 
     // 收合摘要文字 + 更新日期
-    const cashAccts = S.getCashAccounts();
+    const cashAccts = S.getCashAccounts().filter(a => a.id !== marginId);
     const liabs = S.getLiabilities();
     const dateFrom = ts => ts ? (t => `${t.month}月${t.day}日 更新`)(U.taipeiParts(new Date(ts))) : '';
     const maxUpd = list => list.reduce((m, a) => Math.max(m, a.updatedAt || 0), 0);
@@ -957,8 +964,8 @@ App.Views = (function () {
     const investSummary = [...groups.map(g => g.name), ungrouped.length ? '獨立持股' : null].filter(Boolean).join('、') || '尚無持倉';
     const liabSummary = liabs.map(a => a.name).join('、') || '尚無負債';
 
-    // 佔總資產比例（總資產 = 流動資金 + 投資）
-    const grossAssets = sum.cashTwd + sum.investTwd;
+    // 佔總資產比例（總資產 = 流動資金 + 投資 + 期貨權益數）
+    const grossAssets = cashShown + sum.investTwd + (futOn && fut ? fut.equity : 0);
     const pctOfAssets = v => grossAssets > 1e-9 ? v / grossAssets * 100 : 0;
 
     // 佔比環形圈（依類別上色、圈內顯示百分比；放大以容納 100%）
@@ -997,7 +1004,7 @@ App.Views = (function () {
 
     // ── 流動資金 ─────────────────────────────────────────
     html += `<div class="card as-cat">` +
-      catHead('cash', '流動資金', U.fmtWhole(sum.cashTwd), '#34C759', 'oc-green', cashSummary, maxUpd(cashAccts), pctOfAssets(sum.cashTwd));
+      catHead('cash', '流動資金', U.fmtWhole(cashShown), '#34C759', 'oc-green', cashSummary, maxUpd(cashAccts), pctOfAssets(cashShown));
     if (as.openCat === 'cash') {
       html += `<div class="as-body">`;
       for (const a of cashAccts) {
@@ -1055,6 +1062,9 @@ App.Views = (function () {
     }
     html += `</div>`;
 
+    // ── 期貨（點卡進期貨頁）──
+    if (futOn && fut) html += App.ViewsFutures.assetCardHtml(fut, pctOfAssets(fut.equity));
+
     // ── 負債 ────────────────────────────────────────────
     html += `<div class="card as-cat">` +
       catHead('liab', '負債', (sum.liabTwd > 0 ? '−' : '') + U.fmtWhole(sum.liabTwd), '#8E9BEF', 'oc-blue', liabSummary, maxUpd(liabs), pctOfAssets(sum.liabTwd));
@@ -1079,6 +1089,7 @@ App.Views = (function () {
     // ── 事件 ─────────────────────────────────────────────
     root.querySelectorAll('.as-head').forEach(h => h.addEventListener('click', () => {
       const k = h.dataset.cat;
+      if (k === 'fut') { as.detailFut = true; assets(root); return; }
       as.openCat = (as.openCat === k) ? null : k; // 再點一次收合；否則只展開被點的
       assets(root);
     }));
@@ -1448,6 +1459,7 @@ App.Views = (function () {
         <div class="ga-item" data-k="cash"><b>現金帳戶</b><span class="ga-sub">台幣 / 美金，計入流動資金</span></div>
         <div class="ga-item" data-k="invest"><b>投資</b><span class="ga-sub">買入股票 / 加密貨幣（可選擇扣款帳戶）</span></div>
         <div class="ga-item" data-k="liab"><b>負債</b><span class="ga-sub">信貸、房貸等，自淨資產扣除</span></div>
+        <div class="ga-item" data-k="fut"><b>期貨</b><span class="ga-sub">台指期建倉／加碼（大台、小台、微台）</span></div>
         <div class="ga-item" data-k="group"><b>投資群組</b><span class="ga-sub">將持倉分類（例：ETF、核心持股）</span></div>
       </div>`, '');
     ov.querySelectorAll('.ga-item').forEach(it => it.addEventListener('click', () => {
@@ -1456,6 +1468,7 @@ App.Views = (function () {
       if (k === 'cash') openMoneyForm('cash', null, onDone);
       else if (k === 'liab') openMoneyForm('liab', null, onDone);
       else if (k === 'group') openGroupCreate(onDone);
+      else if (k === 'fut') App.ViewsFutures.openTradeForm(null, onDone);
       else openTxForm(null); // 投資 → 新增交易（完成後 afterDataChange 會重繪）
     }));
   }
@@ -2502,5 +2515,7 @@ App.Views = (function () {
     return FEE_RATE[mk === U.Market.us ? 'us' : mk === U.Market.crypto ? 'crypto' : 'tw'];
   }
 
-  return { portfolio, history, report, assets, settings, openTxForm, resetAssetsNav, resetReportNav, resetPortfolioNav, resetSettingsNav };
+  return { portfolio, history, report, assets, settings, openTxForm, resetAssetsNav, resetReportNav, resetPortfolioNav, resetSettingsNav,
+    // 共用元件（供 views-futures.js）
+    seg, applyRange, autoGran, chartLabels, rangeControlHtml, bindRangeControl, yearControlHtml, bindYearControl, chartRange, openChooser, openMoneyForm, maskAmounts };
 })();

@@ -211,3 +211,10 @@ test('parseFuturesDaily：只取指定月份日盤、結算價優先、升冪', 
   ];
   assert.deepEqual(F.parseFuturesDaily(rows, '202610'), [{ date: '2026-09-15', close: 45727 }, { date: '2026-09-16', close: 46060 }, { date: '2026-09-17', close: 46445 }]);
 });
+
+test('parseTaifexMargins：也接受 r.jina.ai 的 markdown 表格（CORS 代理後備）', () => {
+  const md = `Title: 保證金一覽表\n\n| 商品別 | 結算保證金 | 維持保證金 | 原始保證金 |\n| --- | --- | --- | --- |\n| 臺股期貨 | 519,000 | 538,000 | 701,000 |\n| 小型臺指 | 129,750 | 134,500 | 175,250 |\n| 客製化小型臺指期貨 | 129,750 | 134,500 | 175,250 |\n| 微型臺指期貨 | 25,950 | 26,900 | 35,050 |\n\n更新日期：2026/08/12\n`;
+  const r = F.parseTaifexMargins(md);
+  assert.deepEqual(r.margin, { TX: { init: 701000, maint: 538000 }, MTX: { init: 175250, maint: 134500 }, TMF: { init: 35050, maint: 26900 } });
+  assert.equal(r.date, '2026/08/12');
+});
