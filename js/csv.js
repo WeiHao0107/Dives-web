@@ -92,6 +92,13 @@ App.Csv = (function () {
         p.lastRun || '', nm(cashName[p.accountId] || ''), nm(liabName[p.liabilityId] || ''),
       ].join(','));
 
+    // ── 期貨交易（設定放 # SETTINGS；cash 已反映在帳戶餘額，匯入時不重套）──
+    const fst = App.Futures ? App.Futures.getState() : null;
+    lines.push('');
+    lines.push('# FUTURES');
+    lines.push('Contract,Month,Side,Lots,Price,Fee,Tax,Time,RollId,Cash');
+    if (fst) for (const t of fst.trades) lines.push([t.contract, t.month, t.side, t.lots, t.price, t.fee || 0, t.tax || 0, Math.round(t.time), t.rollId || '', t.cash != null ? t.cash : ''].join(','));
+
     // ── 標的名稱/市場（讓匯入後顯示名稱不退化成代碼）──
     lines.push('');
     lines.push('# META');
@@ -112,6 +119,15 @@ App.Csv = (function () {
       ['autoDivAcctUsName', nm(cashName[S.getAutoDivAcctUs()] || '')],
       ['autoDivUsTax', S.getAutoDivUsTax()],
       ['proxy', S.getProxy() || ''],
+      ...(fst ? [
+        ['futAccountName', nm(cashName[fst.accountId] || '')],
+        ['futMargin_TX', fst.margin.TX.init + '/' + fst.margin.TX.maint],
+        ['futMargin_MTX', fst.margin.MTX.init + '/' + fst.margin.MTX.maint],
+        ['futMargin_TMF', fst.margin.TMF.init + '/' + fst.margin.TMF.maint],
+        ['futMarginDate', fst.marginDate || ''], ['futMarginAuto', fst.marginAuto ? 1 : 0],
+        ['futFee_TX', fst.feePerLot.TX], ['futFee_MTX', fst.feePerLot.MTX], ['futFee_TMF', fst.feePerLot.TMF],
+        ['futAlertExpiry', fst.alerts.expiry ? 1 : 0], ['futAlertRisk', fst.alerts.risk ? 1 : 0],
+      ] : []),
     ];
     for (const r of settingRows) lines.push(r.join(','));
 
@@ -121,7 +137,7 @@ App.Csv = (function () {
   // 回傳 {ok, txCount, snapCount, msg}
   function importCsv(content) {
     const txLines = [], snapLines = [], acctLines = [], groupLines = [];
-    const divLines = [], recLines = [], metaLines = [], setLines = [];
+    const divLines = [], recLines = [], metaLines = [], setLines = [], futLines = [];
     let section = 'transactions';
     for (const raw of content.split('\n')) {
       const line = raw.trim();
@@ -133,6 +149,7 @@ App.Csv = (function () {
       if (line === '# RECURRING') { section = 'recurring'; continue; }
       if (line === '# META') { section = 'meta'; continue; }
       if (line === '# SETTINGS') { section = 'settings'; continue; }
+      if (line === '# FUTURES') { section = 'futures'; continue; }
       if (!line) continue;
       if (section === 'transactions') txLines.push(line);
       else if (section === 'snapshots') snapLines.push(line);
@@ -141,15 +158,16 @@ App.Csv = (function () {
       else if (section === 'recurring') recLines.push(line);
       else if (section === 'meta') metaLines.push(line);
       else if (section === 'settings') setLines.push(line);
+      else if (section === 'futures') futLines.push(line);
       else groupLines.push(line);
     }
     // 任一已知分段有內容即可匯入（純現金/股利備份也成立）；全空才拒絕
     const anySection = txLines.length || snapLines.length || acctLines.length || groupLines.length
-      || divLines.length || recLines.length || metaLines.length || setLines.length;
+      || divLines.length || recLines.length || metaLines.length || setLines.length || futLines.length;
     if (!anySection) return { ok: false, msg: 'CSV 沒有可匯入資料' };
 
     // 解析交易
-    const h = txLines[0].toLowerCase();
+    const h = (txLines[0] || '').toLowerCase();
     const hasHeader = h.includes('symbol') && h.includes('type');
     const hasMarket = h.includes('market');
     const dataLines = hasHeader ? txLines.slice(1) : txLines;
@@ -182,7 +200,7 @@ App.Csv = (function () {
     }
     // 交易可為空（如純現金備份）；但若整份檔案只有交易分段且解析不出任何列 → 視為無效檔
     if (!parsed.length && !(snapLines.length || acctLines.length || groupLines.length
-      || divLines.length || recLines.length || metaLines.length || setLines.length))
+      || divLines.length || recLines.length || metaLines.length || setLines.length || futLines.length))
       return { ok: false, msg: 'CSV 沒有可匯入資料' };
 
     // 解析快照
@@ -343,6 +361,27 @@ App.Csv = (function () {
       planCount = plans.length;
     }
 
+    // ── 期貨交易（區段存在才覆蓋；cash 已反映在 ACCOUNTS 餘額，不再套用）──
+    let futCount = 0;
+    if (futLines.length && App.Futures) {
+      const start = futLines[0].toLowerCase().includes('contract') ? 1 : 0;
+      const trades = [];
+      for (let i = start; i < futLines.length; i++) {
+        const p = futLines[i].split(',');
+        if (p.length < 8) continue;
+        const contract = (p[0] || '').trim().toUpperCase(), month = (p[1] || '').trim();
+        const lots = parseFloat(p[3]), price = parseFloat(p[4]);
+        if (!App.Futures.MULT[contract] || !/^\d{6}$/.test(month) || !(lots > 0) || !(price > 0)) continue;
+        const t = { id: S.uuid(), contract, month, side: (p[2] || '').trim().toUpperCase() === 'SELL' ? 'SELL' : 'BUY', lots, price,
+          fee: parseFloat(p[5]) || 0, tax: parseFloat(p[6]) || 0, time: parseInt(p[7], 10) || Date.now() };
+        if ((p[8] || '').trim()) t.rollId = p[8].trim();
+        if ((p[9] || '').trim() !== '') t.cash = parseFloat(p[9]) || 0;
+        trades.push(t);
+      }
+      App.Futures.patchState({ trades });
+      futCount = trades.length;
+    }
+
     // ── 標的名稱/市場（補回顯示名稱；晚於交易匯入,名稱以 META 為準）──
     if (metaLines.length) {
       const start = metaLines[0].toLowerCase().includes('symbol') ? 1 : 0;
@@ -373,6 +412,24 @@ App.Csv = (function () {
           case 'autoDivAcctName': S.setAutoDivAcct(cashIdByName[nmKey(val)] || null); break;
           case 'autoDivAcctUsName': S.setAutoDivAcctUs(cashIdByName[nmKey(val)] || null); break;
           case 'proxy': S.setProxy(val); break;
+          // 期貨設定
+          case 'futAccountName': if (App.Futures) App.Futures.patchState({ accountId: cashIdByName[nmKey(val)] || null }); break;
+          case 'futMargin_TX': case 'futMargin_MTX': case 'futMargin_TMF': {
+            const c = key.slice(10); const [i, m] = val.split('/').map(Number);
+            if (App.Futures && i > 0 && m > 0) { const st = App.Futures.getState(); st.margin[c] = { init: i, maint: m }; App.Futures.saveState(st); }
+            break;
+          }
+          case 'futMarginDate': if (App.Futures) App.Futures.patchState({ marginDate: val || null }); break;
+          case 'futMarginAuto': if (App.Futures) App.Futures.patchState({ marginAuto: val === '1' }); break;
+          case 'futFee_TX': case 'futFee_MTX': case 'futFee_TMF': {
+            const c = key.slice(7); const n = parseFloat(val);
+            if (App.Futures && !isNaN(n)) { const st = App.Futures.getState(); st.feePerLot[c] = n; App.Futures.saveState(st); }
+            break;
+          }
+          case 'futAlertExpiry': case 'futAlertRisk': {
+            if (App.Futures) { const st = App.Futures.getState(); st.alerts[key === 'futAlertExpiry' ? 'expiry' : 'risk'] = val === '1'; App.Futures.saveState(st); }
+            break;
+          }
         }
       }
     }
@@ -380,7 +437,7 @@ App.Csv = (function () {
     // 手續費防呆（SPEC I7）：異常手續費會毒掉成本與報表，回報給呼叫端警告
     const feeWarnSymbols = [...new Set(App.Calc.findAbsurdFees(txOut).map(b => b.symbol))];
 
-    return { ok: true, txCount: txOut.length, snapCount: snaps.length, divCount, planCount, feeWarnSymbols };
+    return { ok: true, txCount: txOut.length, snapCount: snaps.length, divCount, planCount, futCount, feeWarnSymbols };
   }
 
   return { exportCsv, importCsv };

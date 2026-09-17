@@ -50,7 +50,7 @@ App.Views = (function () {
   function openNotifications() {
     const list = S.getNotifications();
     const fmtT = ms => { const p = U.taipeiParts(new Date(ms)); return p.month + '/' + p.day + ' ' + String(p.hour).padStart(2, '0') + ':' + String(p.minute).padStart(2, '0'); };
-    const icon = t => t === 'div' ? '💰' : t === 'exdiv' ? '📅' : t === 'recurring' ? '🔁' : '🔔';
+    const icon = t => t === 'div' ? '💰' : t === 'exdiv' ? '📅' : t === 'recurring' ? '🔁' : t === 'fut' ? '📈' : '🔔';
     const body = list.length
       ? `<div class="ntf-list">${list.map(n => `<div class="ntf-row${n.read ? '' : ' unread'}">
           <span class="ntf-ic">${icon(n.type)}</span>
@@ -337,7 +337,10 @@ App.Views = (function () {
       if (!e) return `<div class="stat-row"><div class="stat-lbl">${label}</div><div class="stat-val"><div class="stat-amt" style="color:var(--sub)">—</div></div></div>`;
       const amt = opts.pctMain ? pctTxt(e.pct) : sf(e.amount);
       let sub;
-      if (opts.trade) {
+      if (opts.trade && e.market === 'fut') {   // 期貨平倉／轉倉：大台 202610→202611 · 2 口 @ 46,764
+        const fpx = U.formatPrice(e.price).replace(/\.00$/, '');
+        sub = `${e.label} · ${e.lots} 口 @ ${fpx} · ${e.date}`;
+      } else if (opts.trade) {
         const usd = e.market === U.Market.us || e.market === U.Market.crypto;
         sub = `${e.symbol} · ${U.formatShares(e.shares)}${shareUnit(e.market)} @ ${usd ? '$' : ''}${U.formatPrice(e.price)} · ${e.date}`;
       } else {
@@ -361,6 +364,7 @@ App.Views = (function () {
       <div class="tr-grid">
         <div class="trg"><span class="trg-k">買入手續費</span><span class="trg-v">${nt(fee.buy)}</span></div>
         <div class="trg"><span class="trg-k">賣出手續費</span><span class="trg-v">${nt(fee.sell)}</span></div>
+        ${fee.fut > 0 ? `<div class="trg"><span class="trg-k">期貨費用</span><span class="trg-v">${nt(fee.fut)}</span></div>` : ''}
         <div class="trg"><span class="trg-k">交易筆數</span><span class="trg-v">${fee.count} 筆</span></div>
         <div class="trg"><span class="trg-k">平均每筆</span><span class="trg-v">${nt(fee.count ? fee.total / fee.count : 0)}</span></div>
       </div>
@@ -381,20 +385,26 @@ App.Views = (function () {
     if (level === 'all') {
       const st = C.tradingStats();
       const sm = C.buildSummary(C.buildPositions()); // 累計報酬（vs 投入本金）
+      const futAll = C.assetsSummary().fut;           // 期貨策略累計（已實現淨費用 + 未平倉）併入總損益；報酬率分母仍為股票投入本金
+      const futCum = futAll ? futAll.cumulative : 0;
+      const allPnl = sm.totalPnl + futCum;
+      const allPct = sm.totalCostBasisTwd > 1e-9 ? allPnl / sm.totalCostBasisTwd * 100 : 0;
+      const allDivPct = sm.totalCostBasisTwd > 1e-9 ? (allPnl + sm.totalDividendTwd) / sm.totalCostBasisTwd * 100 : 0;
       return `
         <div class="card stats-card">
           <div class="stats-title">自投入本金以來</div>
           <div class="tr-row">
-            <div class="tr-amt" style="color:${col(sm.totalPnl)}">${sf(sm.totalPnl)}</div>
-            <div class="tr-pct" style="color:${col(sm.totalReturnPct || 0)}">${pctTxt(sm.totalReturnPct || 0)}</div>
+            <div class="tr-amt" style="color:${col(allPnl)}">${sf(allPnl)}</div>
+            <div class="tr-pct" style="color:${col(allPct)}">${pctTxt(allPct)}</div>
           </div>
           <div class="tr-grid">
             <div class="trg"><span class="trg-k">投入本金</span><span class="trg-v">NT$ ${U.fmtKMBB(sm.totalCostBasisTwd)}</span></div>
             <div class="trg"><span class="trg-k">目前市值</span><span class="trg-v">NT$ ${U.fmtKMBB(sm.totalMarketValueTwd)}</span></div>
             <div class="trg"><span class="trg-k">未實現</span><span class="trg-v" style="color:${col(sm.totalUnrealizedPnl)}">${sf(sm.totalUnrealizedPnl)}</span></div>
             <div class="trg"><span class="trg-k">已實現</span><span class="trg-v" style="color:${col(sm.totalRealizedPnl)}">${sf(sm.totalRealizedPnl)}</span></div>
+            ${Math.abs(futCum) > 0.5 ? `<div class="trg"><span class="trg-k">期貨損益</span><span class="trg-v" style="color:${col(futCum)}">${sf(futCum)}</span></div>` : ''}
             <div class="trg"><span class="trg-k">股息收入</span><span class="trg-v">${sf(sm.totalDividendTwd)}</span></div>
-            <div class="trg"><span class="trg-k">含息報酬率</span><span class="trg-v" style="color:${col(sm.totalReturnWithDivPct || 0)}">${pctTxt(sm.totalReturnWithDivPct || 0)}</span></div>
+            <div class="trg"><span class="trg-k">含息報酬率</span><span class="trg-v" style="color:${col(allDivPct)}">${pctTxt(allDivPct)}</span></div>
             ${(() => { // 年化報酬率(XIRR,資金加權):未滿 90 天年化失真 → 顯示 --
               const x = C.portfolioXirr();
               if (!x) return '';
@@ -643,6 +653,7 @@ App.Views = (function () {
       r.key = +s.date.slice(8, 10); return r;
     });
   }
+  const futOf = x => (x.futRealizedPnl || 0) + (x.futUnrealizedTwd || 0);
   function mkReport(label, s, prev, cl) {
     const cost = s.totalCostBasisTwd;
     const pPnl = s.totalPnl - (prev ? prev.totalPnl : 0);
@@ -666,6 +677,9 @@ App.Views = (function () {
       periodReturnDivPct: cost > 1e-9 ? (pPnl + periodDiv) / cost * 100 : 0,
       periodRealizedPnl: s.realizedPnl - (prev ? prev.realizedPnl : 0),
       unrealizedPnl: s.unrealizedPnl,
+      // 期貨（已實現淨費用 + 未平倉；舊快照無此欄 → 0）
+      futPnl: futOf(s) - (prev ? futOf(prev) : 0),
+      futCum: futOf(s),
     };
   }
 
@@ -716,6 +730,7 @@ App.Views = (function () {
             <span>目前市值 <b>NT$ ${U.fmtKMBB(last.totalMarketValueTwd || 0)}</b></span>
             <span>未實現 <b style="color:${UI.pnlColor(last.unrealizedPnl)}">${U.fmtBannerSigned(last.unrealizedPnl)}</b></span>
             <span>已實現 <b style="color:${UI.pnlColor(last.realizedPnl)}">${U.fmtBannerSigned(last.realizedPnl)}</b></span>
+            ${Math.abs(hero.futCum) > 0.5 ? `<span>期貨 <b style="color:${UI.pnlColor(hero.futCum)}">${U.fmtBannerSigned(hero.futCum)}</b></span>` : ''}
             ${hero.dividendCum > 0 ? `<span>股息 <b style="color:${UI.pnlColor(1)}">${U.fmtBannerSigned(hero.dividendCum)}</b></span>` : ''}
           </div>
         </div>`;
@@ -741,6 +756,7 @@ App.Views = (function () {
           <div class="nw-cap">${hLabel}${hero.periodDividend > 0 ? ' · 含息' : ''}</div>
           <div class="rep-heroline"><span class="nw-num" style="color:${col}">${U.fmtBannerSigned(hero.periodPnlDiv)}</span><span class="rep-heropct" style="color:${UI.pnlColor(hero.periodReturnDivPct || 0)}">${U.fmtPct(hero.periodReturnDivPct)}</span></div>
           ${sparklineHtml(hSnaps.map(s => (s.totalPnl || 0) + C.dividendsUpTo(s.date)), col)}
+          ${Math.abs(hero.futPnl) > 0.5 ? `<div class="rep-chips"><span>股票 <b style="color:${UI.pnlColor(hero.periodPnl - hero.futPnl)}">${U.fmtBannerSigned(hero.periodPnl - hero.futPnl)}</b></span><span>期貨 <b style="color:${UI.pnlColor(hero.futPnl)}">${U.fmtBannerSigned(hero.futPnl)}</b></span>${hero.periodDividend > 0 ? `<span>股息 <b style="color:${UI.pnlColor(1)}">${U.fmtBannerSigned(hero.periodDividend)}</b></span>` : ''}</div>` : ''}
         </div>`;
       }
     }
@@ -760,7 +776,7 @@ App.Views = (function () {
         listHtml += `<div class="rep-prow${drill ? ' rep-prow-drill' : ''}"${drill ? ` data-key="${r.key}"` : ''}>
           <div class="rep-prow-main">
             <div class="rep-prow-lbl">${r.label}</div>
-            <div class="rep-prow-sub">總倉位 ${U.fmtKMBB(r.netAsset)} · 投入 ${U.fmtBannerSigned(r.newInvestment)}${r.periodDividend > 0 ? ' · 股息 ' + U.fmtBannerSigned(r.periodDividend) : ''}</div>
+            <div class="rep-prow-sub">總倉位 ${U.fmtKMBB(r.netAsset)} · 投入 ${U.fmtBannerSigned(r.newInvestment)}${r.periodDividend > 0 ? ' · 股息 ' + U.fmtBannerSigned(r.periodDividend) : ''}${Math.abs(r.futPnl) > 0.5 ? ' · 期貨 ' + U.fmtBannerSigned(r.futPnl) : ''}</div>
           </div>
           <div class="rep-prow-val">
             <div class="rep-prow-pnl" style="color:${UI.pnlColor(r.periodPnlDiv)}">${U.fmtBannerSigned(r.periodPnlDiv)}</div>
@@ -809,7 +825,7 @@ App.Views = (function () {
   /* ===================== 資產（淨資產）===================== */
   // 手風琴：一次只展開一類（cash|invest|liab）；detailGroup = 群組詳情頁
   //   nw/gt 僅保留各自的 metric（走勢/漲幅/投入）與 year（漲幅選年）；時間區間改用共用的 chartRange
-  const as = { openCat: 'invest', detailGroup: null, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
+  const as = { openCat: 'invest', detailGroup: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
     groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null };
   // 所有走勢圖共用的「選擇日期」區間（持久化：關閉程式後重開仍保留同一起始/結束日）
   const chartRange = S.getChartRange();
@@ -881,7 +897,7 @@ App.Views = (function () {
     if (t) t.addEventListener('change', apply);
   }
   // 點「資產」tab 時回到資產首頁（退出群組/走勢/淨資產詳情）
-  function resetAssetsNav() { as.detailGroup = null; as.groupTrend = null; as.catChart = null; }
+  function resetAssetsNav() { as.detailGroup = null; as.groupTrend = null; as.catChart = null; as.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
   const AS_PURPLE = '#6D5FD5';
 
   function mvTwdOf(p, rate) {
@@ -899,10 +915,17 @@ App.Views = (function () {
     if (as.catChart) return metricChartPage(root, as.catChart, () => { as.catChart = null; assets(root); });
     if (as.groupTrend) return groupTrendPage(root, as.groupTrend);
     if (as.detailGroup) return groupDetail(root, as.detailGroup);
+    if (as.detailFut) return App.ViewsFutures.page(root, () => { as.detailFut = false; assets(root); });
     const rate = S.getFxRate() || 31.5;
     const sum = C.assetsSummary();
     const positions = C.buildPositions();
     const groups = S.getGroups();
+    // 期貨：有交易或已連結保證金帳戶才顯示卡；保證金帳戶從流動資金搬到期貨卡（權益數＝餘額＋未平倉），不重複算
+    const futOn = !!(App.ViewsFutures && App.ViewsFutures.visible());
+    const fut = sum.fut;
+    const marginId = futOn && fut ? App.Futures.getState().accountId : null;
+    const marginAcct = marginId ? S.getCashAccounts().find(a => a.id === marginId) : null;
+    const cashShown = sum.cashTwd - (marginAcct ? (marginAcct.balance || 0) : 0);
     const gmap = S.getGroupMap();
     const basis = S.getPctBasis(); // group | invest | net
 
@@ -931,7 +954,7 @@ App.Views = (function () {
     const denom = gTotal => basis === 'group' ? (gTotal || sum.investTwd) : basis === 'invest' ? sum.investTwd : sum.netWorth;
 
     // 今日淨資產漲跌（現金/負債日內不變，故等於投資日損益；紅漲綠跌）
-    const dayChange = (sum.invSummary && sum.invSummary.dayPnl) || 0;
+    const dayChange = ((sum.invSummary && sum.invSummary.dayPnl) || 0) + (futOn && fut ? fut.dayPnl : 0);
     const prevNet = sum.netWorth - dayChange;
     const dayPct = Math.abs(prevNet) > 1e-9 ? dayChange / Math.abs(prevNet) * 100 : 0;
     const dayArrow = dayChange > 0 ? '▲' : dayChange < 0 ? '▼' : '–';
@@ -949,7 +972,7 @@ App.Views = (function () {
     let html = ''; // 捲動內容：分類卡
 
     // 收合摘要文字 + 更新日期
-    const cashAccts = S.getCashAccounts();
+    const cashAccts = S.getCashAccounts().filter(a => a.id !== marginId);
     const liabs = S.getLiabilities();
     const dateFrom = ts => ts ? (t => `${t.month}月${t.day}日 更新`)(U.taipeiParts(new Date(ts))) : '';
     const maxUpd = list => list.reduce((m, a) => Math.max(m, a.updatedAt || 0), 0);
@@ -957,8 +980,8 @@ App.Views = (function () {
     const investSummary = [...groups.map(g => g.name), ungrouped.length ? '獨立持股' : null].filter(Boolean).join('、') || '尚無持倉';
     const liabSummary = liabs.map(a => a.name).join('、') || '尚無負債';
 
-    // 佔總資產比例（總資產 = 流動資金 + 投資）
-    const grossAssets = sum.cashTwd + sum.investTwd;
+    // 佔總資產比例（總資產 = 流動資金 + 投資 + 期貨權益數）
+    const grossAssets = cashShown + sum.investTwd + (futOn && fut ? fut.equity : 0);
     const pctOfAssets = v => grossAssets > 1e-9 ? v / grossAssets * 100 : 0;
 
     // 佔比環形圈（依類別上色、圈內顯示百分比；放大以容納 100%）
@@ -997,7 +1020,7 @@ App.Views = (function () {
 
     // ── 流動資金 ─────────────────────────────────────────
     html += `<div class="card as-cat">` +
-      catHead('cash', '流動資金', U.fmtWhole(sum.cashTwd), '#34C759', 'oc-green', cashSummary, maxUpd(cashAccts), pctOfAssets(sum.cashTwd));
+      catHead('cash', '流動資金', U.fmtWhole(cashShown), '#34C759', 'oc-green', cashSummary, maxUpd(cashAccts), pctOfAssets(cashShown));
     if (as.openCat === 'cash') {
       html += `<div class="as-body">`;
       for (const a of cashAccts) {
@@ -1055,6 +1078,9 @@ App.Views = (function () {
     }
     html += `</div>`;
 
+    // ── 期貨（點卡進期貨頁）──
+    if (futOn && fut) html += App.ViewsFutures.assetCardHtml(fut, pctOfAssets(fut.equity));
+
     // ── 負債 ────────────────────────────────────────────
     html += `<div class="card as-cat">` +
       catHead('liab', '負債', (sum.liabTwd > 0 ? '−' : '') + U.fmtWhole(sum.liabTwd), '#8E9BEF', 'oc-blue', liabSummary, maxUpd(liabs), pctOfAssets(sum.liabTwd));
@@ -1079,6 +1105,7 @@ App.Views = (function () {
     // ── 事件 ─────────────────────────────────────────────
     root.querySelectorAll('.as-head').forEach(h => h.addEventListener('click', () => {
       const k = h.dataset.cat;
+      if (k === 'fut') { as.detailFut = true; assets(root); return; }
       as.openCat = (as.openCat === k) ? null : k; // 再點一次收合；否則只展開被點的
       assets(root);
     }));
@@ -1448,6 +1475,7 @@ App.Views = (function () {
         <div class="ga-item" data-k="cash"><b>現金帳戶</b><span class="ga-sub">台幣 / 美金，計入流動資金</span></div>
         <div class="ga-item" data-k="invest"><b>投資</b><span class="ga-sub">買入股票 / 加密貨幣（可選擇扣款帳戶）</span></div>
         <div class="ga-item" data-k="liab"><b>負債</b><span class="ga-sub">信貸、房貸等，自淨資產扣除</span></div>
+        <div class="ga-item" data-k="fut"><b>期貨</b><span class="ga-sub">台指期建倉／加碼（大台、小台、微台）</span></div>
         <div class="ga-item" data-k="group"><b>投資群組</b><span class="ga-sub">將持倉分類（例：ETF、核心持股）</span></div>
       </div>`, '');
     ov.querySelectorAll('.ga-item').forEach(it => it.addEventListener('click', () => {
@@ -1456,6 +1484,7 @@ App.Views = (function () {
       if (k === 'cash') openMoneyForm('cash', null, onDone);
       else if (k === 'liab') openMoneyForm('liab', null, onDone);
       else if (k === 'group') openGroupCreate(onDone);
+      else if (k === 'fut') App.ViewsFutures.openTradeForm(null, onDone);
       else openTxForm(null); // 投資 → 新增交易（完成後 afterDataChange 會重繪）
     }));
   }
@@ -1708,7 +1737,7 @@ App.Views = (function () {
       reader.onload = async () => {
         const res = App.Csv.importCsv(String(reader.result));
         if (res.ok) {
-          UI.toast(`匯入成功：${res.txCount} 筆交易${res.snapCount ? '、' + res.snapCount + ' 筆快照' : ''}${res.divCount ? '、' + res.divCount + ' 筆股利' : ''}${res.planCount ? '、' + res.planCount + ' 個定期計畫' : ''}`, 'success');
+          UI.toast(`匯入成功：${res.txCount} 筆交易${res.snapCount ? '、' + res.snapCount + ' 筆快照' : ''}${res.divCount ? '、' + res.divCount + ' 筆股利' : ''}${res.planCount ? '、' + res.planCount + ' 個定期計畫' : ''}${res.futCount ? '、' + res.futCount + ' 筆期貨' : ''}`, 'success');
           if (res.feeWarnSymbols && res.feeWarnSymbols.length)
             UI.toast(`⚠️ ${res.feeWarnSymbols.join('、')} 手續費異常偏高，請檢查交易紀錄`, 'error');
           App.afterDataChange();
@@ -2502,5 +2531,7 @@ App.Views = (function () {
     return FEE_RATE[mk === U.Market.us ? 'us' : mk === U.Market.crypto ? 'crypto' : 'tw'];
   }
 
-  return { portfolio, history, report, assets, settings, openTxForm, resetAssetsNav, resetReportNav, resetPortfolioNav, resetSettingsNav };
+  return { portfolio, history, report, assets, settings, openTxForm, resetAssetsNav, resetReportNav, resetPortfolioNav, resetSettingsNav,
+    // 共用元件（供 views-futures.js）
+    seg, applyRange, autoGran, chartLabels, rangeControlHtml, bindRangeControl, yearControlHtml, bindYearControl, chartRange, openChooser, openMoneyForm, maskAmounts };
 })();

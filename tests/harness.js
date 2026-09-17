@@ -33,7 +33,7 @@ function load(file) {
 }
 
 // 依相依順序載入（僅運算核心，不含 DOM 相依的 charts/ui/views/app）
-['util.js', 'store.js', 'calc.js', 'csv.js'].forEach(load);
+['util.js', 'store.js', 'futures.js', 'calc.js', 'csv.js'].forEach(load);
 
 function resetStore() { global.localStorage.clear(); }
 

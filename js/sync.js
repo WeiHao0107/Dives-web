@@ -15,7 +15,7 @@ window.App = window.App || {};
 App.Sync = (function () {
   // 會同步的資料 key（不含裝置本機快取與密鑰）
   const DATA_KEYS = ['dives_transactions', 'dives_meta', 'dives_realized', 'dives_snapshots', 'dives_account',
-    'dives_cash_accounts', 'dives_liabilities', 'dives_groups', 'dives_group_map', 'dives_recurring', 'dives_dividends'];
+    'dives_cash_accounts', 'dives_liabilities', 'dives_groups', 'dives_group_map', 'dives_recurring', 'dives_dividends', 'dives_futures'];
   const FILENAME = 'dives-portfolio.json';
   const K = { token: 'dives_sync_token', gist: 'dives_sync_gist', localTs: 'dives_sync_local_ts' };
 

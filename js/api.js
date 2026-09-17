@@ -356,6 +356,56 @@ App.Api = (function () {
     return out;
   }
 
+  // ---- 台指期貨（FinMind TaiwanFuturesDaily，免金鑰；日盤結算價）----
+  async function fetchFuturesDaily(contract, month, startDate) {
+    try {
+      const j = await fetchJson(fmUrl({ dataset: 'TaiwanFuturesDaily', data_id: contract, start_date: startDate }));
+      return App.Futures.parseFuturesDaily(j.data || [], month);
+    } catch (e) { return []; }
+  }
+  // keys: ['TX@202610', …] → { 'TX@202610': [{date, close}] }（同合約只打一次 API）
+  async function fetchFuturesHistory(keys, startDate) {
+    const out = {};
+    const byContract = {};
+    for (const k of keys || []) { const [c, m] = k.split('@'); (byContract[c] = byContract[c] || []).push(m); out[k] = []; }
+    for (const c in byContract) {
+      try {
+        const j = await fetchJson(fmUrl({ dataset: 'TaiwanFuturesDaily', data_id: c, start_date: startDate }));
+        for (const m of byContract[c]) out[c + '@' + m] = App.Futures.parseFuturesDaily(j.data || [], m);
+      } catch (e) { /* 留空 → 重建時以均價估 */ }
+    }
+    return out;
+  }
+  // 刷新持有月份的結算價 → prices['FUT:c@m'] = {price, dailyChange, prevClose}（手動價會被成功抓到的價覆蓋）
+  async function refreshFutures(prices) {
+    if (!App.Futures) return prices;
+    const { positions } = App.Futures.replay(App.Futures.getState().trades);
+    const byContract = {};
+    for (const p of positions) (byContract[p.contract] = byContract[p.contract] || []).push(p.month);
+    const start = U.isoDate(new Date(Date.now() - 12 * 864e5));
+    for (const c in byContract) {
+      let rows = [];
+      try { rows = (await fetchJson(fmUrl({ dataset: 'TaiwanFuturesDaily', data_id: c, start_date: start }))).data || []; } catch (e) { continue; }
+      for (const m of byContract[c]) {
+        const ser = App.Futures.parseFuturesDaily(rows, m);
+        if (!ser.length) continue;
+        const last = ser[ser.length - 1], prev = ser.length > 1 ? ser[ser.length - 2].close : null;
+        prices[App.Futures.priceKey(c, m)] = { price: last.close, dailyChange: prev != null ? last.close - prev : 0, prevClose: prev, date: last.date };
+      }
+    }
+    return prices;
+  }
+  // 期交所保證金一覽表 → {margin, date} 或 null
+  // 期交所直連一定被 CORS 擋 → 先走 r.jina.ai（免金鑰、支援 CORS，回 markdown，parser 也吃）；失敗再試直連／設定的 proxy
+  const TAIFEX_MARGIN_URL = 'https://www.taifex.com.tw/cht/5/indexMarging';
+  async function fetchTaifexMargins() {
+    try {
+      const res = await fetch('https://r.jina.ai/' + TAIFEX_MARGIN_URL, { cache: 'no-store' });
+      if (res.ok) { const r = App.Futures.parseTaifexMargins(await res.text()); if (r) return r; }
+    } catch (e) { /* 下一個來源 */ }
+    try { return App.Futures.parseTaifexMargins(await fetchText(TAIFEX_MARGIN_URL)); } catch (e) { return null; }
+  }
+
   // ---- 匯率（open.er-api.com，6 小時快取）----
   async function fetchFx() {
     const cached = S.getFxRate(), ts = S.getFxTs();
@@ -378,7 +428,7 @@ App.Api = (function () {
   async function refreshPrices(symbols) {
     const txs = S.getTransactions();
     const all = symbols || [...new Set(txs.map(t => t.symbol))];
-    if (!all.length) { await fetchFx(); return S.getPrices(); }
+    if (!all.length) { await fetchFx(); const p = S.getPrices(); await refreshFutures(p); S.setPrices(p); return p; }
 
     const mmap = S.metaMap();
     const metas = all.map(code => mmap[code] || { code, name: code, market: U.guessMarketBySymbol(code) });
@@ -441,6 +491,7 @@ App.Api = (function () {
     }
 
     await fxP;
+    await refreshFutures(prices);
     if (nameUpdates.length) S.upsertMeta(nameUpdates);
     S.setPrices(prices);
     return prices;
@@ -507,5 +558,6 @@ App.Api = (function () {
     return results.slice(0, 30);
   }
 
-  return { fetchText, fetchJson, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchUsHistory, fetchDailySeries, fetchTwDividends, fetchUsDividends, fetchTwRealtime, fetchUsQuote, fetchCryptoQuotes, fetchCryptoHistory, cacheCgId, fetchFx, refreshPrices, searchSymbols, finnhubKey };
+  return { fetchText, fetchJson, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchUsHistory, fetchDailySeries, fetchTwDividends, fetchUsDividends, fetchTwRealtime, fetchUsQuote, fetchCryptoQuotes, fetchCryptoHistory, cacheCgId, fetchFx, refreshPrices, searchSymbols, finnhubKey,
+    fetchFuturesDaily, fetchFuturesHistory, refreshFutures, fetchTaifexMargins };
 })();

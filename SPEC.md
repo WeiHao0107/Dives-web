@@ -73,6 +73,7 @@ Market = { tse, otc, rotc, us, crypto, unknown }
 | 群組對應 `groupMap` | `{ [symbol]: groupId }` |
 | 佔比基準 `pctBasis` | `'group' | 'invest' | 'net'` |
 | 每日快照 `snapshots` | 見 §5 |
+| 期貨 `futures` | `{ accountId, margin:{TX,MTX,TMF:{init,maint}}, marginDate, marginAuto, feePerLot, alerts, trades:[{ id, contract, month, side, lots, price, fee, tax, time, rollId?, cash }] }`（`App.Futures`，見 §10） |
 
 `App.Store.clearAll()` 會清空以上全部。
 
@@ -97,12 +98,12 @@ SELL → +(shares*price - fee)
 
 ### 4.3 資產彙總 `assetsSummary()`
 ```
-cashTwd  = Σ 現金帳戶（USD × 匯率）
+cashTwd  = Σ 現金帳戶（USD × 匯率；含期貨保證金帳戶）
 liabTwd  = Σ 負債（USD × 匯率）
 investTwd = 投資總市值（買方持倉，美股/加密 × 匯率）
-netWorth = cashTwd + investTwd − liabTwd
+netWorth = cashTwd + investTwd − liabTwd + 期貨未平倉損益
 ```
-另回傳 `invSummary`（含 `dayPnl` 等）。`cashLiabTwd()` 只回傳 `{ cashTwd, liabTwd }`。
+另回傳 `invSummary`（含 `dayPnl` 等）與 `fut`（`App.Futures.summary`）。`cashLiabTwd()` 只回傳 `{ cashTwd, liabTwd }`。資產頁顯示時，保證金帳戶從「流動資金」搬到「期貨」卡（權益數＝餘額＋未平倉），總和不變。
 
 ---
 
@@ -111,7 +112,8 @@ netWorth = cashTwd + investTwd − liabTwd
 每日一筆（同日覆蓋），`date` 為台北時區 `YYYY-MM-DD`。關鍵欄位：
 - 市值：`twMarketValue`, `usMarketValueTwd`, `cryptoMarketValueTwd`, `totalMarketValueTwd`
 - 現金/負債/淨資產：`cashAccountsTwd`, `liabilitiesTwd`, **`netWorth = totalMarketValueTwd + cashAccountsTwd − liabilitiesTwd`**
-- 損益：`dayPnl`, `unrealizedPnl`, `realizedPnl`, `totalPnl` …
+- 損益：`dayPnl`, `unrealizedPnl`, `realizedPnl`, `totalPnl` …（**皆含期貨**：未平倉 + 已實現淨費用）
+- 期貨：`futUnrealizedTwd`, `futRealizedPnl`（累計已實現 − 費用）, `futNotionalTwd`, `futEquityTwd`, `futDayPnl`（舊快照無此欄 → 0）
 
 ### 5.1 淨資產回填 `nwOf(s, cl)`（**相容不變式**）
 舊快照可能無 `netWorth` 欄位，讀取時回填以避免走勢斷崖：
@@ -172,9 +174,15 @@ netWorthBuckets(snapshots, gran, cashLiab) -> Bucket[]
 - **I7**：手續費防呆 —— `findAbsurdFees(txs)` 找出 `fee > 成交金額×25%` 的交易（fee 計入成本，誤填天文數字會毒掉報表與重建歷史）；`importCsv` 回傳 `feeWarnSymbols`，匯入與重建歷史時以 toast 警告。
 - **I8**：群組走勢 —— `buildGroupSeries(symbols, hist, fxRate)` 依交易 + 成員歷史收盤（carry-forward）回推群組每日 `{mv, cost}`（美股/加密 ×匯率；賣光歸零；無歷史價以成本估）。資產→群組詳情→走勢 icon：折線（市值實線+成本虛線）/ 長條（投入、持倉盈虧兩圖）× 天/週/月/年。
 - **I9**：統計（歷史→統計 tab）—— `tradingStats()` 回傳：`period.{day,week,month,year}.{best,worst}`（以 totalPnl 期間變化，全歷史取極值）、`bestTrade/worstTrade`（realizedPnl 極值；**美股/加密先 ×匯率換成 TWD 再比較**，`amount` 為 TWD、`shares/price` 保留原幣別）、`topGain/topLoss/topPct`（現有持倉未實現 TWD/報酬率極值）。`scopedStats()` 同。
+- **I11**：期貨重播 —— `App.Futures.replay(trades)` 以（合約, 月份）為單位：同方向開倉加權均價、反方向平倉 `realized = (price − avgEntry) × 乘數 × 口數 × 方向`、超過口數反手；`summary()`：`equity = 帳戶餘額 + Σ未平倉`、`risk = equity ÷ Σ|口數|×原始`、`callPts = (equity − 維持總額) ÷ Σ(口數×乘數)`、`liqPts` 同式門檻 25% 原始、`accLev = 契約總值 ÷ equity`、`exposure = 契約總值 ÷ 淨資產`。交易的 `cash`（已實現 − 手續費 − 稅）在新增時套用到保證金帳戶、刪除沖回。
+- **I12**：快照 `totalPnl/unrealizedPnl/realizedPnl/dayPnl/netWorth` 皆含期貨；`rebuildSnapshots(hist, fx, futHist)` 以各月份結算價 carry-forward；`tradingStats/scopedStats` 的單筆之最含期貨平倉事件（`market:'fut'`）、`feesSummary.fut` 含手續費＋稅。
 - **I10**：賣出一致性 —— 賣出（新增或編輯）以**時間序重播**驗證：加入後任一時點的賣出股數不得超過當時持股（`firstOversell`），否則拒絕；已實現損益一律由 `recomputeRealized` 重播產生，新增當下與事後編輯結果相同。同檔同一時間多筆賣出對應各自的已實現紀錄（`realizedByTxId`，依建立順序配對）。
 
 ---
+
+## 10. 期貨（`App.Futures` / `App.ViewsFutures`）
+
+設計文件：`docs/superpowers/specs/2026-09-17-futures-design.md`。乘數 `TX 200 / MTX 50 / TMF 10`，期交稅 `契約值 × 0.00002`，到期日＝該月第三個星期三。報價 cache key `FUT:<contract>@<YYYYMM>`（FinMind `TaiwanFuturesDaily` 日盤結算價）。保證金金額預設為期交所 2026/08/12 公告，`marginAuto` 時每日抓期交所頁面（經 r.jina.ai，parser 同時支援 HTML 與 markdown 表格）。CSV 分段 `# FUTURES` 與 `# SETTINGS` 的 `fut*` 列；同步 key `dives_futures`。
 
 ## 9. CSV（`App.Csv`）
 
