@@ -998,11 +998,16 @@ App.Views = (function () {
     }
 
     // 分類卡標頭（名稱前加佔總資產比例環圈；展開填色、收合顯示摘要+日期）
-    function catHead(cat, name, totalHtml, cc, openCls, summary, dateTs, pct) {
+    // chg：{ v, base } → 右下顯示當日漲跌（取代更新日期；展開時也顯示，同期貨卡）
+    function catHead(cat, name, totalHtml, cc, openCls, summary, dateTs, pct, chg) {
       const open = as.openCat === cat;
       const ink = openCls === 'oc-green' ? '#1E8E4E' : openCls === 'oc-purple' ? '#5A4FC0' : '#4A56B5';
       const ring = pct != null ? pctRing(pct, cc, ink) : '';
       const trendBtn = `<button class="as-htrend" data-trend="${cat}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16"/><path d="M7 14l3.5-3.5 3 2.5L19 8"/></svg></button>`;
+      const chgHtml = chg ? (() => {
+        const d = chg.v || 0, pc = Math.abs(chg.base) > 1e-9 ? d / Math.abs(chg.base) * 100 : 0;
+        return `<span class="as-hchg" style="color:${UI.pnlColor(d)}">${d > 0 ? '▲' : d < 0 ? '▼' : '–'} ${U.fmtWhole(Math.abs(d))} (${Math.abs(pc).toFixed(2)}%)</span>`;
+      })() : (!open && dateTs ? `<span class="as-hdate">${dateFrom(dateTs)}</span>` : '');
       return `<div class="as-head ${open ? 'open ' + openCls : ''}" data-cat="${cat}" style="--cc:${cc}">
         <div class="as-hleft cat-hleft">
           ${ring}
@@ -1013,7 +1018,7 @@ App.Views = (function () {
         </div>
         <div class="as-hright">
           <span class="as-total">${totalHtml}</span>
-          ${!open && dateTs ? `<span class="as-hdate">${dateFrom(dateTs)}</span>` : ''}
+          ${chgHtml}
         </div>
       </div>`;
     }
@@ -1038,7 +1043,8 @@ App.Views = (function () {
 
     // ── 投資 ────────────────────────────────────────────
     html += `<div class="card as-cat">` +
-      catHead('invest', '投資', U.fmtWhole(sum.investTwd), AS_PURPLE, 'oc-purple', investSummary, S.getPricesTs(), pctOfAssets(sum.investTwd));
+      catHead('invest', '投資', U.fmtWhole(sum.investTwd), AS_PURPLE, 'oc-purple', investSummary, S.getPricesTs(), pctOfAssets(sum.investTwd),
+        { v: (sum.invSummary && sum.invSummary.dayPnl) || 0, base: sum.investTwd - ((sum.invSummary && sum.invSummary.dayPnl) || 0) });
     if (as.openCat === 'invest') {
       html += `<div class="as-body">`;
       // 群組列（點擊進入詳情頁）
