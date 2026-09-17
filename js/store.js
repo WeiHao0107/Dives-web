@@ -62,9 +62,17 @@ App.Store = (function () {
   // ---- Meta ----  {code, name, market}
   function getMeta() { return read(K.meta, []); }
   function setMeta(arr) { write(K.meta, arr); }
+  // 讀取時補齊市場：market 缺漏或 unknown（舊備份匯出 unknown、iOS 匯出不認得的市場字串）
+  // 就依代碼格式猜（字母=美股、數字=台股），否則美股會被當台股：不換匯率、報價走錯來源、顯示名稱。
+  // upsertMeta / setAlias 以此結果寫回 → 資料下次寫入時自動修復。
+  function resolveMarket(x) {
+    const U = App.Util;
+    const mk = U.normalizeMarketKey(x.market);
+    return mk === U.Market.unknown ? U.guessMarketBySymbol(x.code) : mk;
+  }
   function metaMap() {
     const m = {};
-    for (const x of getMeta()) m[x.code] = x;
+    for (const x of getMeta()) m[x.code] = Object.assign({}, x, { market: resolveMarket(x) });
     return m;
   }
   function upsertMeta(list) {

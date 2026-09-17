@@ -96,7 +96,7 @@ App.Csv = (function () {
     lines.push('');
     lines.push('# META');
     lines.push('Symbol,Name,Market');
-    for (const m of S.getMeta()) lines.push([m.code, nm(m.name || m.code), m.market || ''].join(','));
+    for (const m of Object.values(S.metaMap())) lines.push([m.code, nm(m.name || m.code), m.market || ''].join(','));
 
     // ── 設定（不含 API 金鑰與 App 鎖：金鑰屬憑證、鎖綁裝置，還原後自行重設）──
     lines.push('');
@@ -222,8 +222,9 @@ App.Csv = (function () {
     const sortedTx = [...parsed].sort((a, b) => a.time - b.time);
     const metaUpserts = [];
     const mmap = S.metaMap();
+    const mkOrGuess = (raw, sym) => { const mk = U.normalizeMarketKey(raw || ''); return mk === U.Market.unknown ? U.guessMarketBySymbol(sym) : mk; };
     for (const t of sortedTx) {
-      const mk = t.market ? U.normalizeMarketKey(t.market) : U.guessMarketBySymbol(t.sym);
+      const mk = mkOrGuess(t.market, t.sym); // unknown / 不認得的市場字串 → 依代碼猜，不要原樣存成 unknown
       const name = mmap[t.sym]?.name || t.sym;
       metaUpserts.push({ code: t.sym, name, market: mk });
     }
@@ -315,8 +316,8 @@ App.Csv = (function () {
         if (!(amount > 0)) continue;
         const plan = {
           id: S.uuid(), kind, amount,
-          freq: (p[5] || 'monthly').trim() === 'weekly' ? 'weekly' : 'monthly',
-          day: parseInt(p[6], 10) || 1,
+          freq: ['weekly', 'biweekly'].includes((p[5] || '').trim()) ? (p[5] || '').trim() : 'monthly',
+          day: isNaN(parseInt(p[6], 10)) ? null : parseInt(p[6], 10), // 0 = 星期日，不能用 `|| 1`；空白 → 由開始日推算
           startDate: (p[7] || '').trim() || null,
           endDate: (p[8] || '').trim() || null,
           enabled: (p[9] || '1').trim() !== '0',
@@ -349,7 +350,7 @@ App.Csv = (function () {
       for (let i = start; i < metaLines.length; i++) {
         const p = metaLines[i].split(',');
         const code = U.sanitizeSymbol(p[0]); if (!code) continue;
-        ups.push({ code, name: (p[1] || '').trim() || code, market: U.normalizeMarketKey((p[2] || '').trim() || U.guessMarketBySymbol(code)) });
+        ups.push({ code, name: (p[1] || '').trim() || code, market: mkOrGuess((p[2] || '').trim(), code) });
       }
       if (ups.length) S.upsertMeta(ups);
     }

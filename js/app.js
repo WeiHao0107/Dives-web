@@ -3,7 +3,7 @@
  * ======================================================================= */
 (function () {
   const V = App.Views, S = App.Store, C = App.Calc, UI = App.UI, Api = App.Api;
-  App.VERSION = 'v135';
+  App.VERSION = 'v136';
 
   const TAB_ORDER = ['assets', 'portfolio', 'report', 'history', 'settings'];
   // 記住當前分頁，避免重新整理/下拉時跳回資產
@@ -578,6 +578,9 @@
       } catch (e) { console.warn('auto dividends failed', e); }
       const hasTx = S.getTransactions().length > 0;
       if (hasTx) await refresh();
+      else { // 沒有交易就不會走報價刷新 → 匯率仍要更新（美金帳戶/負債換算用），變了就重繪
+        try { const before = S.getFxRate(); await Api.fetchFx(); if (S.getFxRate() !== before) renderCurrent(); } catch (e) {}
+      }
       Api.loadTwUniverse(false).catch(() => {});
       maybeBackfill(); // 登入後自動補齊歷史缺口（每天最多一次）
     })();

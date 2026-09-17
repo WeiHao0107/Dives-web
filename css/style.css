@@ -258,7 +258,7 @@ input, select { font-family: inherit; font-size: 15px; }
 .tx-type { font-size: 11px; font-weight: 700; padding: 3px 7px; border-radius: 6px; }
 .tx-type.buy, .tx-mini .buy { background: rgba(229,57,53,0.12); color: var(--gain); }
 .tx-type.sell, .tx-mini .sell { background: rgba(67,160,71,0.12); color: var(--loss); }
-.tx-type.evt { background: var(--soft); color: var(--sub); }
+.tx-type.evt, .tx-mini .evt { background: var(--soft); color: var(--sub); }
 /* 通知鈴鐺 + 通知面板 */
 .ref-btn { position: relative; }
 .ntf-dot { position: absolute; top: 2px; right: 2px; width: 9px; height: 9px; border-radius: 50%; background: var(--gain); border: 1.5px solid var(--card); }

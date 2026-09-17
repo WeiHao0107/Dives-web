@@ -153,3 +153,19 @@ test('名稱含逗號：帳戶/計畫名稱全形替換後仍可正確還原連�
   assert.equal(p.freq, 'weekly');
   assert.equal(p.priceBasis, 'open');
 });
+
+test('定期計畫：每兩週頻率 與 每週「星期日」(day=0) 匯出→匯入不失真', () => {
+  S.setRecurringPlans([
+    { id: 'a', kind: 'dca', symbol: '0050', market: 'tse', name: 'x', amount: 1000, freq: 'biweekly', day: 3, startDate: '2026-01-01', enabled: true, feeMode: 'none', feeVal: 0, lastRun: null, createdAt: 1 },
+    { id: 'b', kind: 'dca', symbol: '0050', market: 'tse', name: 'x', amount: 1000, freq: 'weekly', day: 0, startDate: '2026-01-01', enabled: true, feeMode: 'none', feeVal: 0, lastRun: null, createdAt: 1 },
+  ]);
+  const csv = Csv.exportCsv();
+  resetStore();
+  Csv.importCsv(csv);
+  const plans = S.getRecurringPlans();
+  assert.equal(plans.length, 2);
+  assert.equal(plans[0].freq, 'biweekly');
+  assert.equal(plans[0].day, 3);
+  assert.equal(plans[1].freq, 'weekly');
+  assert.equal(plans[1].day, 0); // 星期日不可被 `|| 1` 變成星期一
+});

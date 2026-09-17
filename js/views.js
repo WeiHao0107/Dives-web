@@ -269,9 +269,10 @@ App.Views = (function () {
 
   function openSymbolActions(sym) {
     const txs = S.getTransactions().filter(t => t.symbol === sym).sort((a, b) => b.time - a.time);
+    const kindOf = t => t.type === 'BUY' ? ['buy', '買'] : t.type === 'SELL' ? ['sell', '賣'] : ['evt', '配']; // STOCK_DIV = 配股
     let rows = txs.map(t => `<div class="tx-mini" data-id="${t.id}">
-      <span class="${t.type === 'BUY' ? 'buy' : 'sell'}">${t.type === 'BUY' ? '買' : '賣'}</span>
-      <span>${U.formatShares(t.shares)} @ ${U.formatPrice(t.price)}</span>
+      <span class="${kindOf(t)[0]}">${kindOf(t)[1]}</span>
+      <span>${t.type === 'STOCK_DIV' ? '配股 +' + U.formatShares(t.shares) : U.formatShares(t.shares) + ' @ ' + U.formatPrice(t.price)}</span>
       <span class="tx-date">${U.isoDate(new Date(t.time))}</span>
       <button class="link-edit" data-id="${t.id}">編輯</button>
     </div>`).join('');
@@ -283,7 +284,12 @@ App.Views = (function () {
     ov.querySelector('#add-more').addEventListener('click', () => { UI.closeSheet(); openTxForm(null, sym); });
     ov.querySelectorAll('.link-edit').forEach(b => b.addEventListener('click', () => {
       const tx = S.getTransactions().find(t => t.id === b.dataset.id);
-      UI.closeSheet(); openTxForm(tx);
+      UI.closeSheet();
+      if (!tx) return;
+      if (tx.type === 'STOCK_DIV') { // 配股走股利表單（檢視/刪除），不能當賣出編輯
+        const m = S.metaMap()[tx.symbol] || {};
+        openDividendForm('stock', { id: tx.id, symbol: tx.symbol, name: m.name || tx.symbol, market: m.market, shares: tx.shares, date: U.isoDate(new Date(tx.time)) });
+      } else openTxForm(tx);
     }));
   }
 
@@ -455,8 +461,7 @@ App.Views = (function () {
       return true;
     });
 
-    const rzByKey = {};
-    for (const r of S.getRealized()) rzByKey[r.symbol + '@' + r.time] = r;
+    const rzOf = C.realizedByTxId(); // 賣出 tx.id → 已實現（同檔同日多筆賣出不會互相蓋掉）
     const toTwd = hist.txFilter === 'all'; // 全部市場 → 金額一律換算台幣
     const sumCur = (hist.txFilter === 'us' || hist.txFilter === 'crypto') ? '$' : 'NT$';
     const convOf = sym => (isUsdMk(mktOf(sym)) && toTwd) ? rate : 1;
@@ -466,7 +471,7 @@ App.Views = (function () {
     for (const e of filtered) {
       const conv = convOf(e.symbol);
       if (e.kind === 'tx' && e.tx.type === 'BUY') totalInvest += (e.tx.shares * e.tx.price + (e.tx.fee || 0)) * conv;
-      else if (e.kind === 'tx' && e.tx.type === 'SELL') { const rz = rzByKey[e.symbol + '@' + e.tx.time]; if (rz) totalProfit += rz.realizedPnl * conv; }
+      else if (e.kind === 'tx' && e.tx.type === 'SELL') { const rz = rzOf[e.tx.id]; if (rz) totalProfit += rz.realizedPnl * conv; }
       else if (e.kind === 'cashdiv') totalDiv += (e.div.amount || 0) * conv;
     }
 
@@ -513,7 +518,7 @@ App.Views = (function () {
         const t = e.tx, conv = convOf(e.symbol);
         let valHtml;
         if (t.type === 'SELL') {
-          const rz = rzByKey[t.symbol + '@' + t.time];
+          const rz = rzOf[t.id];
           if (rz) {
             const pnl = rz.realizedPnl * conv;
             const base = rz.avgCost * rz.shares;
@@ -883,6 +888,12 @@ App.Views = (function () {
     const m = U.normalizeMarketKey(p.market);
     return (m === U.Market.us || m === U.Market.crypto) ? p.marketValue * rate : p.marketValue;
   }
+  // 資產頁群組分類列的副名稱：台股顯示名稱；美股/加密只顯示代號（名稱留空）
+  function groupRowName(p) {
+    const m = U.normalizeMarketKey(p.market);
+    if (m === U.Market.us || m === U.Market.crypto) return '';
+    return p.name && p.name !== p.symbol ? p.name : '';
+  }
 
   function assets(root) {
     if (as.catChart) return metricChartPage(root, as.catChart, () => { as.catChart = null; assets(root); });
@@ -1034,7 +1045,7 @@ App.Views = (function () {
         const isUsd = U.normalizeMarketKey(p.market) !== U.Market.tse && U.normalizeMarketKey(p.market) !== U.Market.otc && U.normalizeMarketKey(p.market) !== U.Market.rotc;
         html += `<div class="as-row member top" data-sym="${p.symbol}">
           <span class="pct-badge sm">${fmtPctBadge(pct)}</span>
-          <div class="as-main"><div class="as-title">${p.symbol} <span class="h-name">${p.name}</span></div>
+          <div class="as-main"><div class="as-title">${p.symbol} <span class="h-name">${groupRowName(p)}</span></div>
             <div class="as-sub">持有 ${U.formatShares(p.shares)}, ${isUsd ? '$' : ''}${U.formatPrice(p.lastPrice != null ? p.lastPrice : p.avgCost)}</div></div>
           <div class="as-val">${U.fmtWhole(mv)}</div>
         </div>`;
@@ -1273,7 +1284,7 @@ App.Views = (function () {
       listHtml += `<div class="card gd-row" data-sym="${p.symbol}">
         <span class="pct-badge">${fmtPctBadge(pct)}</span>
         <div class="as-main">
-          <div class="gd-sym">${p.symbol} <span class="h-name">${p.name !== p.symbol ? p.name : ''}</span></div>
+          <div class="gd-sym">${p.symbol} <span class="h-name">${groupRowName(p)}</span></div>
           <div class="as-sub">持有 ${U.formatShares(p.shares)}, ${isUsd ? '$' : ''}${U.formatPrice(p.lastPrice != null ? p.lastPrice : p.avgCost)}</div>
         </div>
         <div class="gd-val">
@@ -2051,7 +2062,7 @@ App.Views = (function () {
             sug.innerHTML = '';
             st.picked = { code: it.dataset.code, name, market: it.dataset.mk };
             if (it.dataset.cgid) App.Api.cacheCgId(it.dataset.code, it.dataset.cgid);
-            if (st.feeMode === 'rate') $('#rp-feeval').value = it.dataset.mk === 'crypto' ? '0.1' : (it.dataset.mk === 'us' ? '0.08' : '0.1425');
+            if (st.feeMode === 'rate') $('#rp-feeval').value = defaultFeeRate(it.dataset.mk);
             refreshAcct();
           }));
         }, 220);
@@ -2294,6 +2305,11 @@ App.Views = (function () {
       feeMode: editing ? 'amount' : 'rate', // 編輯：既有 fee 是「絕對金額」，須用固定金額模式（否則被當費率%重算）
     };
     const ed = editing;
+    // 由既有標的開表單（投資頁 → 新增交易）：市場/名稱取自 meta，預設費率、帳戶幣別、加密計價幣別才會跟著對
+    if (!ed && presetSym) {
+      const m = S.metaMap()[presetSym] || {};
+      txState.picked = { code: presetSym, name: m.name || presetSym, market: U.normalizeMarketKey(m.market || U.guessMarketBySymbol(presetSym)) };
+    }
     const body = `
       <div class="tx-toggle">
         <button class="tt-btn buy ${txState.isBuy ? 'active' : ''}" data-buy="1">買入</button>
@@ -2323,7 +2339,7 @@ App.Views = (function () {
           <button class="fm-btn ${txState.feeMode === 'rate' ? 'active' : ''}" data-m="rate">費率 %</button>
           <button class="fm-btn ${txState.feeMode === 'amount' ? 'active' : ''}" data-m="amount">固定金額</button>
         </div>
-        <input class="input" id="tx-fee" type="number" inputmode="decimal" value="${ed ? ed.fee : '0.1425'}">
+        <input class="input" id="tx-fee" type="number" inputmode="decimal" value="${ed ? ed.fee : defaultFeeRate(txState.picked ? txState.picked.market : null)}">
       </label>
       ${!ed ? `<label class="fld">現金帳戶（買入扣款 / 賣出存入）
         <select class="input" id="tx-acct"><option value="">不使用現金帳戶</option></select>
@@ -2335,11 +2351,21 @@ App.Views = (function () {
     const $ = s => ov.querySelector(s);
     function setTitle() { ov.querySelector('.sheet-title').textContent = ed ? '編輯交易' : (txState.isBuy ? '新增買入' : '新增賣出'); }
 
+    // 目前標的的市場：建議清單/既有標的 > 由輸入的代碼格式猜
+    const marketSel = () => txState.picked ? U.normalizeMarketKey(txState.picked.market)
+      : U.guessMarketBySymbol(U.sanitizeSymbol($('#tx-sym') ? $('#tx-sym').value : txState.symbol));
+    // 依市場套用預設費率（台股 0.1425 / 美股 0.08 / 加密 0.1）；使用者自填的費率不動
+    const applyDefaultFee = () => {
+      if (txState.feeMode !== 'rate') return;
+      const cur = $('#tx-fee').value;
+      if (cur && !Object.values(FEE_RATE).includes(cur)) return;
+      $('#tx-fee').value = defaultFeeRate(marketSel());
+    };
     // 加密計價幣別（USD/台幣）：選台幣時儲存前依匯率換算為 USD
     txState.priceCur = 'USD';
     const isCryptoSel = () => ed
       ? U.normalizeMarketKey((S.metaMap()[ed.symbol] || {}).market) === U.Market.crypto
-      : !!(txState.picked && txState.picked.market === 'crypto');
+      : marketSel() === U.Market.crypto;
     function syncPriceCur() {
       const f = $('#price-cur-fld'); if (!f) return;
       const show = isCryptoSel();
@@ -2375,11 +2401,12 @@ App.Views = (function () {
       ov.querySelectorAll('.tt-btn').forEach(x => x.classList.remove('active'));
       b.classList.add('active'); setTitle();
     }));
-    ov.querySelectorAll('.fm-btn').forEach(b => b.addEventListener('click', () => {
+    // 僅費率/固定金額兩顆（[data-m]）：加密的 USD/台幣 計價鈕也是 .fm-btn，不能一起綁
+    ov.querySelectorAll('.fm-btn[data-m]').forEach(b => b.addEventListener('click', () => {
       txState.feeMode = b.dataset.m;
-      ov.querySelectorAll('.fm-btn').forEach(x => x.classList.remove('active'));
+      ov.querySelectorAll('.fm-btn[data-m]').forEach(x => x.classList.remove('active'));
       b.classList.add('active');
-      if (txState.feeMode === 'rate' && !$('#tx-fee').value) $('#tx-fee').value = isUsSym($('#tx-sym')?.value || txState.symbol) ? '0.08' : '0.1425';
+      if (txState.feeMode === 'rate' && !$('#tx-fee').value) $('#tx-fee').value = defaultFeeRate(marketSel());
       updatePreview();
     }));
     ['#tx-shares', '#tx-price', '#tx-fee'].forEach(s => $(s).addEventListener('input', updatePreview));
@@ -2387,8 +2414,7 @@ App.Views = (function () {
     // 現金帳戶選項（依標的幣別過濾：台股=台幣、美股/加密=美金）
     function refreshAcctOptions() {
       const sel = $('#tx-acct'); if (!sel) return;
-      const mk = txState.picked ? U.normalizeMarketKey(txState.picked.market)
-        : U.guessMarketBySymbol(U.sanitizeSymbol($('#tx-sym') ? $('#tx-sym').value : txState.symbol));
+      const mk = marketSel();
       const wantCur = (mk === U.Market.us || mk === U.Market.crypto) ? 'USD' : 'TWD';
       const keep = sel.value;
       const opts = S.getCashAccounts().filter(a => a.currency === wantCur);
@@ -2405,15 +2431,10 @@ App.Views = (function () {
       symInput.addEventListener('input', () => {
         const q = symInput.value.trim();
         clearTimeout(timer);
+        txState.picked = null; // 重新輸入即失效（先清掉，下面的市場推斷才不會沿用舊標的）
         if (!q) { sug.innerHTML = ''; return; }
-        // 市場切換 → 自動更新預設費率
-        if (txState.feeMode === 'rate') {
-          const us = isUsSym(q);
-          if (us && $('#tx-fee').value === '0.1425') $('#tx-fee').value = '0.08';
-          else if (!us && $('#tx-fee').value === '0.08') $('#tx-fee').value = '0.1425';
-        }
+        applyDefaultFee(); // 市場切換 → 自動更新預設費率
         refreshAcctOptions(); syncPriceCur();
-        txState.picked = null; // 重新輸入即失效
         timer = setTimeout(async () => {
           const res = await App.Api.searchSymbols(q);
           sug.innerHTML = res.map(r => `<div class="sug-item" data-code="${r.code}" data-name="${encodeURIComponent(r.name)}" data-mk="${r.market}"${r.cgid ? ` data-cgid="${r.cgid}"` : ''}>
@@ -2424,7 +2445,7 @@ App.Views = (function () {
             sug.innerHTML = '';
             txState.picked = { code: it.dataset.code, name, market: it.dataset.mk };
             if (it.dataset.cgid) App.Api.cacheCgId(it.dataset.code, it.dataset.cgid);
-            if (txState.feeMode === 'rate') $('#tx-fee').value = it.dataset.mk === 'crypto' ? '0.1' : (it.dataset.mk === 'us' ? '0.08' : '0.1425');
+            applyDefaultFee();
             refreshAcctOptions(); syncPriceCur();
             $('#tx-shares').focus();
           }));
@@ -2474,7 +2495,12 @@ App.Views = (function () {
       foot.insertBefore(del, foot.firstChild);
     }
   }
-  function isUsSym(s) { return U.guessMarketBySymbol(U.sanitizeSymbol(s)) === U.Market.us; }
+  // 交易表單預設手續費率 %：台股 0.1425、美股 0.08、加密 0.1（依標的市場帶入，使用者可改）
+  const FEE_RATE = { tw: '0.1425', us: '0.08', crypto: '0.1' };
+  function defaultFeeRate(market) {
+    const mk = U.normalizeMarketKey(market);
+    return FEE_RATE[mk === U.Market.us ? 'us' : mk === U.Market.crypto ? 'crypto' : 'tw'];
+  }
 
   return { portfolio, history, report, assets, settings, openTxForm, resetAssetsNav, resetReportNav, resetPortfolioNav, resetSettingsNav };
 })();

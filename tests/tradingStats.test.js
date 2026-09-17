@@ -43,19 +43,42 @@ test('賣出全賺 → 最賠一筆為 null；持倉全賺 → 虧損王 null', 
   assert.equal(st.worstTrade, null);
 });
 
-test('單筆交易之最：最賺 / 最賠（依 realizedPnl，含股數/價格）', () => {
+test('單筆交易之最：最賺 / 最賠（依 realizedPnl，含股數/價格；美股金額換算 TWD）', () => {
+  S.setFxRate(30);
+  S.upsertMeta([{ code: '2330', name: '台積電', market: 'tse' }, { code: 'TSLA', name: 'Tesla', market: 'us' }, { code: 'NVDA', name: 'NVIDIA', market: 'us' }]);
   S.setRealized([
     { id: '1', symbol: '2330', shares: 100, sellPrice: 2500, avgCost: 1802, realizedPnl: 69800, time: T('2026-05-01') },
     { id: '2', symbol: 'TSLA', shares: 30, sellPrice: 300, avgCost: 700, realizedPnl: -12000, time: T('2026-05-10') },
-    { id: '3', symbol: 'NVDA', shares: 10, sellPrice: 200, avgCost: 100, realizedPnl: 3000, time: T('2026-05-20') },
+    { id: '3', symbol: 'NVDA', shares: 10, sellPrice: 200, avgCost: 100, realizedPnl: 1000, time: T('2026-05-20') },
   ]);
   const st = C.tradingStats();
   assert.equal(st.bestTrade.symbol, '2330');
   assert.equal(st.bestTrade.amount, 69800);
   assert.equal(st.bestTrade.shares, 100);   // 成交股數
-  assert.equal(st.bestTrade.price, 2500);    // 成交價
+  assert.equal(st.bestTrade.price, 2500);    // 成交價（原幣別）
   assert.equal(st.worstTrade.symbol, 'TSLA');
-  assert.equal(st.worstTrade.amount, -12000);
+  assert.equal(st.worstTrade.amount, -12000 * 30); // USD → TWD
+  assert.equal(st.worstTrade.price, 300);           // 價格仍為 USD
+});
+
+test('單筆交易之最：跨幣別比較須先換算 TWD（$1,000 美股 > NT$2,000 台股）', () => {
+  S.setFxRate(30);
+  S.upsertMeta([{ code: '2330', name: '台積電', market: 'tse' }, { code: 'NVDA', name: 'NVIDIA', market: 'us' }]);
+  S.setRealized([
+    { id: '1', symbol: '2330', shares: 10, sellPrice: 1000, avgCost: 800, realizedPnl: 2000, time: T('2026-05-01') },
+    { id: '2', symbol: 'NVDA', shares: 10, sellPrice: 200, avgCost: 100, realizedPnl: 1000, time: T('2026-05-02') },
+    { id: '3', symbol: '2330', shares: 10, sellPrice: 700, avgCost: 800, realizedPnl: -1000, time: T('2026-05-03') },
+    { id: '4', symbol: 'NVDA', shares: 1, sellPrice: 90, avgCost: 100, realizedPnl: -10, time: T('2026-05-04') },
+  ]);
+  const st = C.tradingStats();
+  assert.equal(st.bestTrade.symbol, 'NVDA');
+  assert.equal(st.bestTrade.amount, 30000);
+  assert.equal(st.worstTrade.symbol, '2330');  // −NT$1,000 比 −$10(−NT$300) 更賠
+  assert.equal(st.worstTrade.amount, -1000);
+  const sc = C.scopedStats('2026-01-01', '2026-12-31', ['day']);
+  assert.equal(sc.bestTrade.symbol, 'NVDA');
+  assert.equal(sc.bestTrade.amount, 30000);
+  assert.equal(sc.worstTrade.amount, -1000);
 });
 
 test('區間獲利之最：忽略第一個期間（第一天的變化不計入）', () => {
@@ -135,12 +158,12 @@ test('scopedStats：區間獲利之最只計區間內、以區間前為基準', 
 });
 
 test('scopedStats：單筆交易之最依成交日過濾（只含區間內）', () => {
-  S.setRealized([
-    { symbol: 'AAA', realizedPnl: 5000, time: T('2025-05-01'), shares: 10, sellPrice: 100, avgCost: 50 },
-    { symbol: 'BBB', realizedPnl: 9000, time: T('2026-02-01'), shares: 10, sellPrice: 200, avgCost: 100 },
+  S.setRealized([ // 台股代碼（純數字）→ 金額即 TWD，不經匯率
+    { symbol: '1111', realizedPnl: 5000, time: T('2025-05-01'), shares: 10, sellPrice: 100, avgCost: 50 },
+    { symbol: '2222', realizedPnl: 9000, time: T('2026-02-01'), shares: 10, sellPrice: 200, avgCost: 100 },
   ]);
   const y = C.scopedStats('2025-01-01', '2025-12-31', ['day']);
-  assert.equal(y.bestTrade.symbol, 'AAA');   // 2026 的 BBB 不計入
+  assert.equal(y.bestTrade.symbol, '1111');   // 2026 的 2222 不計入
   assert.equal(y.bestTrade.amount, 5000);
   assert.equal(y.worstTrade, null);
 });

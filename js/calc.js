@@ -171,25 +171,37 @@ App.Calc = (function () {
     }
 
     const txs = S.getTransactions();
-    if (type === 'SELL') {
-      const symbolTxs = txs.filter(t => t.symbol === symbol);
-      const { shares: posShares, avgCost } = computeAvgCostPosition(symbolTxs);
-      if (posShares <= 1e-9) return { ok: false, msg: '目前沒有持倉，無法賣出' };
-      if (shares > posShares + 1e-9) return { ok: false, msg: '賣出股數超過持倉（持倉：' + U.formatShares(posShares) + '）' };
-      const realized = shares * price - shares * avgCost - fee;
-      const rz = S.getRealized();
-      rz.push({ id: S.uuid(), symbol, shares, sellPrice: price, avgCost, realizedPnl: realized, time: ts });
-      S.setRealized(rz);
-    }
-
     const newTx = { id: S.uuid(), symbol, type, shares, price, fee, time: ts };
     if (accountId) newTx.accountId = accountId;
     if (source) newTx.source = source;
+    if (type === 'SELL') {
+      // 以「賣出當時」的持股驗證（可回填日期），且加入後不得讓後面任何一筆賣出超賣
+      const bad = firstOversell([...txs.filter(t => t.symbol === symbol), newTx]);
+      if (bad) return { ok: false, msg: oversellMsg(bad, newTx) };
+    }
     txs.push(newTx);
     S.setTransactions(txs);
+    // 已實現損益一律由時間序重播產生（與編輯/刪除後的重算結果一致）
+    if (type === 'SELL') recomputeRealized(symbol);
     // 現金帳戶連動：買入扣款、賣出存入（帳戶原幣別金額）
     if (accountId) S.adjustCashBalance(accountId, txCashDelta(newTx));
     return { ok: true, symbol };
+  }
+
+  // 時間序重播，找出第一筆「賣出股數 > 當時持股」的賣出；回傳 {tx, held}，無則 null
+  function firstOversell(txs) {
+    let shares = 0;
+    for (const t of [...txs].sort((a, b) => a.time - b.time)) {
+      if (t.type !== 'SELL') { shares += t.shares; continue; }
+      if (t.shares > shares + 1e-9) return { tx: t, held: shares };
+      shares -= t.shares;
+    }
+    return null;
+  }
+  function oversellMsg(bad, self) {
+    const held = U.formatShares(bad.held);
+    if (bad.tx === self) return bad.held <= 1e-9 ? '該日期沒有持倉，無法賣出' : '賣出股數超過該日持倉（持倉：' + held + '）';
+    return '這樣會讓 ' + U.isoDate(new Date(bad.tx.time)) + ' 的賣出超過持倉（當時持倉：' + held + '）';
   }
 
   // 交易對現金帳戶的影響（原幣別）：BUY = −(金額+費)、SELL = +(金額−費)
@@ -205,6 +217,9 @@ App.Calc = (function () {
     const txs = S.getTransactions();
     const tx = txs.find(t => t.id === id);
     if (!tx) return { ok: false, msg: '找不到交易' };
+    const cand = Object.assign({}, tx, { type, shares, price, fee, time });
+    const bad = firstOversell(txs.filter(t => t.symbol === tx.symbol).map(t => (t.id === id ? cand : t)));
+    if (bad) return { ok: false, msg: oversellMsg(bad, cand) };
     if (tx.accountId) S.adjustCashBalance(tx.accountId, -txCashDelta(tx)); // 沖銷舊
     tx.type = type; tx.shares = shares; tx.price = price; tx.fee = fee; tx.time = time;
     if (tx.accountId) S.adjustCashBalance(tx.accountId, txCashDelta(tx));  // 套用新
@@ -242,6 +257,20 @@ App.Calc = (function () {
       }
     }
     S.setRealized(rz);
+  }
+
+  // 賣出交易 id → 對應的已實現紀錄。已實現紀錄沒有存交易 id，只能以 symbol+time 對應；
+  // 同檔同一天多筆賣出（表單日期一律存中午）時間相同，故依建立順序一一配對，不能互相蓋掉。
+  function realizedByTxId() {
+    const key = x => x.symbol + '@' + x.time;
+    const pool = {};
+    for (const r of [...S.getRealized()].sort((a, b) => a.time - b.time)) (pool[key(r)] = pool[key(r)] || []).push(r);
+    const out = {};
+    for (const t of S.getTransactions().filter(t => t.type === 'SELL').sort((a, b) => a.time - b.time)) {
+      const q = pool[key(t)];
+      if (q && q.length) out[t.id] = q.shift();
+    }
+    return out;
   }
 
   // 股票股利(配股)：新增一筆 STOCK_DIV 交易(零成本加股)；走現有持倉/成本引擎
@@ -679,18 +708,19 @@ App.Calc = (function () {
     const thisYearSnaps = snaps.filter(s => s.date.slice(0, 4) === curYear);
 
     // 單筆交易之最（最賺取正、最賠取負；含成交股數/價格）
+    // 金額換算 TWD 再比較（美股/加密的 realizedPnl 為 USD）；shares/price 保留原幣別供顯示
     const mmap = S.metaMap();
+    const isUsd = m => { const k = U.normalizeMarketKey(m); return k === U.Market.us || k === U.Market.crypto; };
     let bestTrade = null, worstTrade = null;
     for (const r of S.getRealized()) {
-      const rec = { symbol: r.symbol, amount: r.realizedPnl, date: U.isoDate(new Date(r.time)),
-        shares: r.shares, price: r.sellPrice,
-        market: U.normalizeMarketKey((mmap[r.symbol] && mmap[r.symbol].market) || U.guessMarketBySymbol(r.symbol)) };
-      if (r.realizedPnl > 0 && (!bestTrade || r.realizedPnl > bestTrade.amount)) bestTrade = rec;
-      if (r.realizedPnl < 0 && (!worstTrade || r.realizedPnl < worstTrade.amount)) worstTrade = rec;
+      const market = U.normalizeMarketKey((mmap[r.symbol] && mmap[r.symbol].market) || U.guessMarketBySymbol(r.symbol));
+      const amt = r.realizedPnl * (isUsd(market) ? rate : 1);
+      const rec = { symbol: r.symbol, amount: amt, date: U.isoDate(new Date(r.time)), shares: r.shares, price: r.sellPrice, market };
+      if (amt > 0 && (!bestTrade || amt > bestTrade.amount)) bestTrade = rec;
+      if (amt < 0 && (!worstTrade || amt < worstTrade.amount)) worstTrade = rec;
     }
 
     // 目前持倉之最（未實現，換算 TWD；獲利王取正、虧損王取負）
-    const isUsd = m => { const k = U.normalizeMarketKey(m); return k === U.Market.us || k === U.Market.crypto; };
     let topGain = null, topLoss = null, topPct = null;
     for (const p of buildPositions()) {
       if (p.lastPrice == null) continue; // 無報價不列
@@ -832,16 +862,18 @@ App.Calc = (function () {
       periodReturnWithDivPct = cost > 1e-9 ? (periodPnl + periodDividend) / cost * 100 : 0;
     }
 
-    // 該區間單筆交易之最（已實現，依成交日過濾）
+    // 該區間單筆交易之最（已實現，依成交日過濾；金額換算 TWD 再比較）
     const mmap = S.metaMap();
+    const rate = S.getFxRate() || 31.5;
     let bestTrade = null, worstTrade = null;
     for (const r of S.getRealized()) {
       const d = U.isoDate(new Date(r.time));
       if ((from && d < from) || (to && d > to)) continue;
-      const rec = { symbol: r.symbol, amount: r.realizedPnl, date: d, shares: r.shares, price: r.sellPrice,
-        market: U.normalizeMarketKey((mmap[r.symbol] && mmap[r.symbol].market) || U.guessMarketBySymbol(r.symbol)) };
-      if (r.realizedPnl > 0 && (!bestTrade || r.realizedPnl > bestTrade.amount)) bestTrade = rec;
-      if (r.realizedPnl < 0 && (!worstTrade || r.realizedPnl < worstTrade.amount)) worstTrade = rec;
+      const market = U.normalizeMarketKey((mmap[r.symbol] && mmap[r.symbol].market) || U.guessMarketBySymbol(r.symbol));
+      const amt = r.realizedPnl * ((market === U.Market.us || market === U.Market.crypto) ? rate : 1);
+      const rec = { symbol: r.symbol, amount: amt, date: d, shares: r.shares, price: r.sellPrice, market };
+      if (amt > 0 && (!bestTrade || amt > bestTrade.amount)) bestTrade = rec;
+      if (amt < 0 && (!worstTrade || amt < worstTrade.amount)) worstTrade = rec;
     }
 
     return { period, periodPnl, periodReturnPct, periodDividend, periodReturnWithDivPct, bestTrade, worstTrade };
@@ -972,7 +1004,7 @@ App.Calc = (function () {
 
   return {
     computeAvgCostPosition, buildPositions, buildSummary,
-    addTransaction, updateTransaction, deleteTransaction, recomputeRealized,
+    addTransaction, updateTransaction, deleteTransaction, recomputeRealized, realizedByTxId, firstOversell,
     addStockDividend, dividendsTotalTwd, dividendsBetween, dividendsUpTo, addDividend, updateDividend, deleteDividend, sharesHeldBefore,
     deleteSymbol, saveTodaySnapshot, rebuildSnapshots, assetsSummary, txCashDelta, cashLiabTwd,
     netWorthBuckets, findAbsurdFees, repairFees, buildGroupSeries, tradingStats, scopedStats, xirrRate, buildXirrFlows, portfolioXirr,

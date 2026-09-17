@@ -56,7 +56,7 @@ App.UI = (function () {
   }
 
   function confirmDialog(msg, onYes, yesLabel) {
-    const ov = openSheet('確認', `<p style="padding:4px 2px 12px;color:#1c1917">${msg}</p>`,
+    const ov = openSheet('確認', `<p style="padding:4px 2px 12px;color:var(--text)">${msg}</p>`,
       `<button class="btn btn-ghost" id="cd-no">取消</button><button class="btn btn-danger" id="cd-yes">${yesLabel || '確定'}</button>`);
     ov.querySelector('#cd-no').addEventListener('click', closeSheet);
     ov.querySelector('#cd-yes').addEventListener('click', () => { closeSheet(); onYes && onYes(); });

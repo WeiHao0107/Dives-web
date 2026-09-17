@@ -76,12 +76,16 @@ Market = { tse, otc, rotc, us, crypto, unknown }
 
 `App.Store.clearAll()` 會清空以上全部。
 
+`meta.market` 缺漏或 `unknown`（舊備份、iOS 匯出不認得的市場字串）時，`metaMap()` **讀取時**依代碼格式補上（`guessMarketBySymbol`），`upsertMeta` 寫回即修復；否則字母代碼的美股會被當台股（不換匯率、報價走台股來源）。
+
 ---
 
 ## 4. 損益與彙總（`App.Calc`）
 
 ### 4.1 持倉 `buildPositions()`
 以移動加權平均成本累計各 symbol：BUY 加股數與成本、SELL 減股數（成本按均價扣抵）。輸出每檔 `{ symbol, name, market, shares, avgCost, lastPrice, marketValue, ... }`。
+
+賣出以「賣出當時」的持股驗證（可回填日期），見 I10。
 
 ### 4.2 現金沖銷 `txCashDelta(tx)`（**不變式**）
 交易對所選現金帳戶餘額的影響：
@@ -167,7 +171,8 @@ netWorthBuckets(snapshots, gran, cashLiab) -> Bucket[]
 - **I6**：CSV 匯出→匯入為 round-trip：交易筆數與關鍵欄位一致（§9）。
 - **I7**：手續費防呆 —— `findAbsurdFees(txs)` 找出 `fee > 成交金額×25%` 的交易（fee 計入成本，誤填天文數字會毒掉報表與重建歷史）；`importCsv` 回傳 `feeWarnSymbols`，匯入與重建歷史時以 toast 警告。
 - **I8**：群組走勢 —— `buildGroupSeries(symbols, hist, fxRate)` 依交易 + 成員歷史收盤（carry-forward）回推群組每日 `{mv, cost}`（美股/加密 ×匯率；賣光歸零；無歷史價以成本估）。資產→群組詳情→走勢 icon：折線（市值實線+成本虛線）/ 長條（投入、持倉盈虧兩圖）× 天/週/月/年。
-- **I9**：統計（歷史→統計 tab）—— `tradingStats()` 回傳：`period.{day,week,month,year}.{best,worst}`（以 totalPnl 期間變化，全歷史取極值）、`bestTrade/worstTrade`（realizedPnl 極值）、`topGain/topLoss/topPct`（現有持倉未實現 TWD/報酬率極值）。
+- **I9**：統計（歷史→統計 tab）—— `tradingStats()` 回傳：`period.{day,week,month,year}.{best,worst}`（以 totalPnl 期間變化，全歷史取極值）、`bestTrade/worstTrade`（realizedPnl 極值；**美股/加密先 ×匯率換成 TWD 再比較**，`amount` 為 TWD、`shares/price` 保留原幣別）、`topGain/topLoss/topPct`（現有持倉未實現 TWD/報酬率極值）。`scopedStats()` 同。
+- **I10**：賣出一致性 —— 賣出（新增或編輯）以**時間序重播**驗證：加入後任一時點的賣出股數不得超過當時持股（`firstOversell`），否則拒絕；已實現損益一律由 `recomputeRealized` 重播產生，新增當下與事後編輯結果相同。同檔同一時間多筆賣出對應各自的已實現紀錄（`realizedByTxId`，依建立順序配對）。
 
 ---
 
