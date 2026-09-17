@@ -3,7 +3,7 @@
  * ======================================================================= */
 (function () {
   const V = App.Views, S = App.Store, C = App.Calc, UI = App.UI, Api = App.Api;
-  App.VERSION = 'v136';
+  App.VERSION = 'v137';
 
   const TAB_ORDER = ['assets', 'portfolio', 'report', 'history', 'settings'];
   // 記住當前分頁，避免重新整理/下拉時跳回資產
@@ -169,6 +169,7 @@
         if (r.changed) renderCurrent();
       }
       await Api.refreshPrices(symbols);
+      futuresAlerts();
       const isNewDay = C.saveTodaySnapshot();
       if (isNewDay && App.Sync) App.Sync.markDirty(); // 新的一天快照 → 同步
       renderCurrent();
@@ -193,7 +194,8 @@
   // 重建歷史走勢：用交易 + 台股歷史收盤回推每日快照
   async function rebuildHistory() {
     const txs = S.getTransactions();
-    if (!txs.length) { UI.toast('尚無交易可重建', 'info'); return 0; }
+    const ftrades = App.Futures ? App.Futures.getState().trades : [];
+    if (!txs.length && !ftrades.length) { UI.toast('尚無交易可重建', 'info'); return 0; }
     // 手續費防呆（SPEC I7）：異常手續費會讓成本爆掉、報表失真 → 明確指出是哪幾檔
     const badFees = C.findAbsurdFees(txs);
     if (badFees.length) {
@@ -201,24 +203,64 @@
       UI.toast(`⚠️ ${syms} 手續費異常偏高，報表恐失真，請檢查交易紀錄`, 'error');
     }
     const mmap = S.metaMap();
-    const firstTime = Math.min(...txs.map(t => t.time));
+    const firstTime = Math.min(...txs.map(t => t.time), ...ftrades.map(t => t.time));
     const firstDate = App.Util.isoDate(new Date(firstTime));
+    const fkeys = [...new Set(ftrades.map(t => t.contract + '@' + t.month))];   // 期貨各持有月份的日結算
     const all = [...new Set(txs.map(t => t.symbol))];
     const mkOf = c => App.Util.normalizeMarketKey((mmap[c] && mmap[c].market) || App.Util.guessMarketBySymbol(c));
     const twCodes = all.filter(c => mkOf(c) !== App.Util.Market.us && mkOf(c) !== App.Util.Market.crypto);
     const usCodes = all.filter(c => mkOf(c) === App.Util.Market.us);
     const cryptoCodes = all.filter(c => mkOf(c) === App.Util.Market.crypto);
     await Api.fetchFx();
-    const [twHist, usHist, cryptoHist] = await Promise.all([
+    const [twHist, usHist, cryptoHist, futHist] = await Promise.all([
       Api.fetchTwHistory(twCodes, firstDate),
       Api.fetchUsHistory(usCodes, firstDate),
       Api.fetchCryptoHistory(cryptoCodes, firstDate),
+      Api.fetchFuturesHistory(fkeys, firstDate),
     ]);
-    const n = C.rebuildSnapshots(Object.assign({}, twHist, usHist, cryptoHist), S.getFxRate());
+    const n = C.rebuildSnapshots(Object.assign({}, twHist, usHist, cryptoHist), S.getFxRate(), futHist);
     C.saveTodaySnapshot();          // 今天用即時價覆蓋
     if (App.Sync) App.Sync.markDirty();
     renderCurrent();
     return n;
+  }
+
+  // 期貨：每日一次抓期交所保證金（marginAuto 開啟且有期貨資料時）；失敗保留原值；有變動則通知
+  async function maybeUpdateMargins() {
+    if (!App.Futures) return;
+    const st = App.Futures.getState();
+    if (!st.marginAuto || (!st.trades.length && !st.accountId)) return;
+    const today = App.Util.isoDate();
+    if (localStorage.getItem('dives_fut_margin_date') === today) return;
+    const r = await Api.fetchTaifexMargins();
+    if (!r) return;
+    localStorage.setItem('dives_fut_margin_date', today);
+    const cur = App.Futures.getState();
+    const changed = App.Futures.CONTRACTS.some(c => r.margin[c] && (r.margin[c].init !== cur.margin[c].init || r.margin[c].maint !== cur.margin[c].maint));
+    for (const c of App.Futures.CONTRACTS) if (r.margin[c]) cur.margin[c] = r.margin[c];
+    if (r.date) cur.marginDate = r.date;
+    App.Futures.saveState(cur);
+    if (App.Sync) App.Sync.markDirty();
+    if (changed) {
+      S.pushNotification({ type: 'fut', key: 'fut-margin:' + (r.date || today), title: '期交所保證金已調整',
+        body: '大台 ' + App.Util.fmtWhole(cur.margin.TX.init) + ' / ' + App.Util.fmtWhole(cur.margin.TX.maint) });
+      renderCurrent();
+    }
+  }
+  // 期貨提醒：到期前 7 天（每部位一次）、風險指標 < 100%（每日一次）
+  function futuresAlerts() {
+    if (!App.Futures) return;
+    const st = App.Futures.getState();
+    if (!st.trades.length) return;
+    const f = App.Futures.summary(st, S.getPrices(), null);
+    const today = App.Util.isoDate();
+    if (st.alerts.expiry) for (const p of f.positions) {
+      const days = Math.round((Date.parse(p.expiry + 'T00:00:00+08:00') - Date.parse(today + 'T00:00:00+08:00')) / 864e5);
+      if (days >= 0 && days <= 7) S.pushNotification({ type: 'fut', key: 'fut-exp:' + p.key,
+        title: App.Futures.LABEL[p.contract] + ' ' + p.month + ' 還有 ' + days + ' 天到期', body: '到期 ' + p.expiry + '，記得轉倉' });
+    }
+    if (st.alerts.risk && f.risk != null && f.risk < 1) S.pushNotification({ type: 'fut', key: 'fut-risk:' + today,
+      title: '期貨風險指標 ' + Math.round(f.risk * 100) + '%', body: '權益數 ' + App.Util.fmtWhole(f.equity) + '，低於原始保證金' });
   }
 
   // 缺漏的「交易日(週間)」天數：從最早快照到今天，扣掉週末後仍沒有快照的天數
@@ -444,6 +486,13 @@
       BTC: { price: 61000, dailyChange: 800, prevClose: 60200 },
       ETH: { price: 2600, dailyChange: -50, prevClose: 2650 },
     });
+    // 期貨：保證金帳戶 + 大台 2 口（一次轉倉 202609 → 202610）
+    const mAcct = { id: S.uuid(), name: '期貨保證金', currency: 'TWD', balance: 2150000 };
+    S.setCashAccounts([...S.getCashAccounts(), mAcct]);
+    S.setFutures({ accountId: mAcct.id });
+    App.Futures.addTrade({ contract: 'TX', month: '202609', side: 'BUY', lots: 2, price: 45120, time: Date.now() - 60 * DAY });
+    App.Futures.rollover({ contract: 'TX', month: '202609', toMonth: '202610', lots: 2, closePrice: 46300, openPrice: 46215, time: Date.now() - 1 * DAY });
+    const pz = S.getPrices(); pz['FUT:TX@202610'] = { price: 46764, dailyChange: 305, prevClose: 46459 }; S.setPrices(pz);
     const g1 = { id: S.uuid(), name: '核心持股' }, g2 = { id: S.uuid(), name: 'ETF' }, g3 = { id: S.uuid(), name: '小倉位' };
     S.setGroups([g1, g2, g3]);
     S.setGroupMap({ TSLA: g1.id, GOOGL: g1.id, NVDA: g1.id, '2330': g1.id, '0050': g2.id, '2454': g3.id });
@@ -576,13 +625,14 @@
         if (nd > 0) { renderCurrent(); UI.toast(`已自動匯入 ${nd} 筆台股股利`, 'success'); }
         else renderCurrent(); // 讓鈴鐺紅點反映新提醒(如即將除息)
       } catch (e) { console.warn('auto dividends failed', e); }
-      const hasTx = S.getTransactions().length > 0;
+      const hasTx = S.getTransactions().length > 0 || (App.Futures && App.Futures.getState().trades.length > 0);
       if (hasTx) await refresh();
       else { // 沒有交易就不會走報價刷新 → 匯率仍要更新（美金帳戶/負債換算用），變了就重繪
         try { const before = S.getFxRate(); await Api.fetchFx(); if (S.getFxRate() !== before) renderCurrent(); } catch (e) {}
       }
       Api.loadTwUniverse(false).catch(() => {});
       maybeBackfill(); // 登入後自動補齊歷史缺口（每天最多一次）
+      maybeUpdateMargins().catch(e => console.warn('taifex margins failed', e));
     })();
   }
 

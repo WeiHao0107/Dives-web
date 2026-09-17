@@ -50,7 +50,7 @@ App.Views = (function () {
   function openNotifications() {
     const list = S.getNotifications();
     const fmtT = ms => { const p = U.taipeiParts(new Date(ms)); return p.month + '/' + p.day + ' ' + String(p.hour).padStart(2, '0') + ':' + String(p.minute).padStart(2, '0'); };
-    const icon = t => t === 'div' ? '💰' : t === 'exdiv' ? '📅' : t === 'recurring' ? '🔁' : '🔔';
+    const icon = t => t === 'div' ? '💰' : t === 'exdiv' ? '📅' : t === 'recurring' ? '🔁' : t === 'fut' ? '📈' : '🔔';
     const body = list.length
       ? `<div class="ntf-list">${list.map(n => `<div class="ntf-row${n.read ? '' : ' unread'}">
           <span class="ntf-ic">${icon(n.type)}</span>

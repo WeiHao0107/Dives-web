@@ -1,13 +1,14 @@
 /* =========================================================================
  * sw.js — Service Worker：App 殼層採「網路優先」（永遠拿最新，離線才用快取）
  * ======================================================================= */
-const CACHE = 'dives-v136';
+const CACHE = 'dives-v137';
 const SHELL = [
   './',
   './index.html',
   './css/style.css',
   './js/util.js',
   './js/store.js',
+  './js/futures.js',
   './js/calc.js',
   './js/csv.js',
   './js/api.js',
@@ -16,6 +17,7 @@ const SHELL = [
   './js/sync.js',
   './js/auth.js',
   './js/views.js',
+  './js/views-futures.js',
   './js/app.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
