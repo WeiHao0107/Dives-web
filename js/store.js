@@ -35,6 +35,7 @@ App.Store = (function () {
     privacy: 'dives_privacy',
     chartRange: 'dives_chart_range',
     theme: 'dives_theme',
+    futures: 'dives_futures',
   };
 
   function read(key, fallback) {
@@ -91,6 +92,10 @@ App.Store = (function () {
     else return;
     setMeta(Object.values(map));
   }
+
+  // ---- 期貨（設定 + 交易；結構見 App.Futures.DEFAULTS）----
+  function getFutures() { return read(K.futures, null); }
+  function setFutures(o) { write(K.futures, o); }
 
   // ---- Realized ----  {id, symbol, shares, sellPrice, avgCost, realizedPnl, time(ms)}
   function getRealized() { return read(K.realized, []); }
@@ -219,12 +224,14 @@ App.Store = (function () {
     setRecurringPlans([]);
     setDividends([]);
     setNotifications([]);
+    setFutures(null);
   }
 
   return {
     uuid,
     getTransactions, setTransactions,
     getMeta, setMeta, metaMap, upsertMeta, setAlias,
+    getFutures, setFutures,
     getRealized, setRealized,
     getSnapshots, setSnapshots,
     getAccount, setAccount,
