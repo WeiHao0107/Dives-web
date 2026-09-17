@@ -69,7 +69,7 @@ callPts     = sens ? (equity − maintTotal) / sens : null       （多方：再
 liqPts      = sens ? (equity − 0.25 × initTotal) / sens : null
 notional    = Σ |netLots| × mult × mark
 accLev      = equity > 0 ? notional / equity : null
-exposure    = netWorth > 0 ? notional / netWorth : null        （netWorth 含期貨未平倉）
+exposure    = netWorth > 0 ? (股票市值 + notional) / netWorth : null   （整個組合的曝險倍數；netWorth 含期貨未平倉）
 dayPnl      = Σ dailyChange × mult × netLots
 realizedNet = Σ events.realizedPnl − Σ trades.(fee + tax)      （策略累計＝realizedNet + unrealized）
 ```

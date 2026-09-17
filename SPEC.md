@@ -174,7 +174,7 @@ netWorthBuckets(snapshots, gran, cashLiab) -> Bucket[]
 - **I7**：手續費防呆 —— `findAbsurdFees(txs)` 找出 `fee > 成交金額×25%` 的交易（fee 計入成本，誤填天文數字會毒掉報表與重建歷史）；`importCsv` 回傳 `feeWarnSymbols`，匯入與重建歷史時以 toast 警告。
 - **I8**：群組走勢 —— `buildGroupSeries(symbols, hist, fxRate)` 依交易 + 成員歷史收盤（carry-forward）回推群組每日 `{mv, cost}`（美股/加密 ×匯率；賣光歸零；無歷史價以成本估）。資產→群組詳情→走勢 icon：折線（市值實線+成本虛線）/ 長條（投入、持倉盈虧兩圖）× 天/週/月/年。
 - **I9**：統計（歷史→統計 tab）—— `tradingStats()` 回傳：`period.{day,week,month,year}.{best,worst}`（以 totalPnl 期間變化，全歷史取極值）、`bestTrade/worstTrade`（realizedPnl 極值；**美股/加密先 ×匯率換成 TWD 再比較**，`amount` 為 TWD、`shares/price` 保留原幣別）、`topGain/topLoss/topPct`（現有持倉未實現 TWD/報酬率極值）。`scopedStats()` 同。
-- **I11**：期貨重播 —— `App.Futures.replay(trades)` 以（合約, 月份）為單位：同方向開倉加權均價、反方向平倉 `realized = (price − avgEntry) × 乘數 × 口數 × 方向`、超過口數反手；`summary()`：`equity = 帳戶餘額 + Σ未平倉`、`risk = equity ÷ Σ|口數|×原始`、`callPts = (equity − 維持總額) ÷ Σ(口數×乘數)`、`liqPts` 同式門檻 25% 原始、`accLev = 契約總值 ÷ equity`、`exposure = 契約總值 ÷ 淨資產`。交易的 `cash`（已實現 − 手續費 − 稅）在新增時套用到保證金帳戶、刪除沖回。
+- **I11**：期貨重播 —— `App.Futures.replay(trades)` 以（合約, 月份）為單位：同方向開倉加權均價、反方向平倉 `realized = (price − avgEntry) × 乘數 × 口數 × 方向`、超過口數反手；`summary()`：`equity = 帳戶餘額 + Σ未平倉`、`risk = equity ÷ Σ|口數|×原始`、`callPts = (equity − 維持總額) ÷ Σ(口數×乘數)`、`liqPts` 同式門檻 25% 原始、`accLev = 契約總值 ÷ equity`、`exposure = (股票市值 + 契約總值) ÷ 淨資產`。交易的 `cash`（已實現 − 手續費 − 稅）在新增時套用到保證金帳戶、刪除沖回。
 - **I12**：快照 `totalPnl/unrealizedPnl/realizedPnl/dayPnl/netWorth` 皆含期貨；`rebuildSnapshots(hist, fx, futHist)` 以各月份結算價 carry-forward；`tradingStats/scopedStats` 的單筆之最含期貨平倉事件（`market:'fut'`）、`feesSummary.fut` 含手續費＋稅。
 - **I10**：賣出一致性 —— 賣出（新增或編輯）以**時間序重播**驗證：加入後任一時點的賣出股數不得超過當時持股（`firstOversell`），否則拒絕；已實現損益一律由 `recomputeRealized` 重播產生，新增當下與事後編輯結果相同。同檔同一時間多筆賣出對應各自的已實現紀錄（`realizedByTxId`，依建立順序配對）。
 

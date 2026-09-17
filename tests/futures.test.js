@@ -67,7 +67,7 @@ test('summary：權益數、風險指標、追繳／砍倉距離、槓桿、曝�
   S.setCashAccounts([{ id: 'm1', name: '期貨保證金', currency: 'TWD', balance: 2150000 }]);
   S.setFutures({ accountId: 'm1', trades: [tr({ id: 'a', month: '202610', lots: 2, price: 45900, fee: 120, tax: 367.2, time: T('2026-08-20') })] });
   const prices = { 'FUT:TX@202610': { price: 46764, dailyChange: 305, prevClose: 46459 } };
-  const s = F.summary(null, prices, 8457115);       // 淨資產（不含期貨未平倉）
+  const s = F.summary(null, prices, 8457115, 5000000);   // 淨資產（不含期貨未平倉）、股票市值
   assert.equal(s.unrealized, (46764 - 45900) * 200 * 2);      // 345,600
   assert.equal(s.equity, 2150000 + 345600);
   assert.equal(s.initTotal, 1402000);
@@ -79,7 +79,7 @@ test('summary：權益數、風險指標、追繳／砍倉距離、槓桿、曝�
   assert.ok(Math.abs(s.liqPts - (2495600 - 0.25 * 1402000) / 400) < 1e-9);    // 5,362.75
   assert.equal(s.notional, 46764 * 400);
   assert.ok(Math.abs(s.accLev - 46764 * 400 / 2495600) < 1e-9);
-  assert.ok(Math.abs(s.exposure - 46764 * 400 / (8457115 + 345600)) < 1e-9);
+  assert.ok(Math.abs(s.exposure - (5000000 + 46764 * 400) / (8457115 + 345600)) < 1e-9);   // (股票市值 + 契約值) ÷ 淨資產
   assert.equal(s.dayPnl, 305 * 400);
   assert.equal(s.fees, 487.2);
   assert.equal(s.realizedNet, -487.2);

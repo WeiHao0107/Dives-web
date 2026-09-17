@@ -96,8 +96,9 @@ App.Futures = (function () {
 
   function riskLevel(r) { return r == null ? null : r >= 1 ? 'safe' : r >= 0.5 ? 'warn' : 'danger'; }
 
-  // 指標。state 空 → getState()；prices 為 S.getPrices() 格式；netWorthExFut = 不含期貨未平倉的淨資產（算整體曝險）
-  function summary(state, prices, netWorthExFut) {
+  // 指標。state 空 → getState()；prices 為 S.getPrices() 格式
+  // netWorthExFut = 不含期貨未平倉的淨資產、investTwd = 股票市值 → 整體曝險 = (股票市值 + 契約總值) ÷ 淨資產
+  function summary(state, prices, netWorthExFut, investTwd) {
     const st = state || getState();
     const pr = prices || {};
     const margin = st.margin || DEFAULTS.margin;
@@ -129,7 +130,7 @@ App.Futures = (function () {
       liqPts: sens ? (equity - 0.25 * initTotal) / sens : null,
       sens, notional,
       accLev: equity > 0 && notional > 0 ? notional / equity : null,
-      exposure: nw > 0 && notional > 0 ? notional / nw : null,
+      exposure: nw > 0 && (notional + (investTwd || 0)) > 0 ? (notional + (investTwd || 0)) / nw : null,
       dayPnl, fees, realizedGross, realizedNet: realizedGross - fees, cumulative: realizedGross - fees + unrealized,
       lots: rows.reduce((s, p) => s + Math.abs(p.netLots), 0), hasAccount: !!acct,
     };

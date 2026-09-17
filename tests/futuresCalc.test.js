@@ -21,7 +21,8 @@ test('assetsSummary：淨資產 = 現金(含保證金) + 投資 − 負債 + 期
   const a = C.assetsSummary();
   assert.equal(a.fut.unrealized, 345600);
   assert.equal(a.netWorth, 2500000 + 60000 + 345600);
-  assert.ok(Math.abs(a.fut.exposure - 46764 * 400 / a.netWorth) < 1e-9);
+  // 整體曝險 = (股票市值 + 期貨契約值) ÷ 淨資產
+  assert.ok(Math.abs(a.fut.exposure - (60000 + 46764 * 400) / a.netWorth) < 1e-9);
 });
 
 test('saveTodaySnapshot：期貨欄位 + totalPnl/dayPnl/netWorth 含期貨', () => {

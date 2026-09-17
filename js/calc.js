@@ -390,8 +390,8 @@ App.Calc = (function () {
     const liabTwd = S.getLiabilities().reduce((s, a) => s + toTwd(a), 0);
     const inv = buildSummary(buildPositions());
     const base = cashTwd + inv.totalMarketValueTwd - liabTwd;
-    // 期貨：保證金餘額已在 cashTwd 內，淨資產只再加未平倉損益
-    const fut = App.Futures ? App.Futures.summary(null, S.getPrices(), base) : null;
+    // 期貨：保證金餘額已在 cashTwd 內，淨資產只再加未平倉損益；整體曝險 = (股票市值 + 契約總值) ÷ 淨資產
+    const fut = App.Futures ? App.Futures.summary(null, S.getPrices(), base, inv.totalMarketValueTwd) : null;
     const futUnrealized = fut ? fut.unrealized : 0;
     return {
       cashTwd, liabTwd,
@@ -418,7 +418,7 @@ App.Calc = (function () {
     const { cashTwd, liabTwd } = cashLiabTwd();
     const base = summary.totalMarketValueTwd + cashTwd - liabTwd;
     // 期貨：未平倉／已實現（淨費用）併入損益欄位；權益數／契約總值另存供走勢與槓桿
-    const fut = App.Futures ? App.Futures.summary(null, S.getPrices(), base) : null;
+    const fut = App.Futures ? App.Futures.summary(null, S.getPrices(), base, summary.totalMarketValueTwd) : null;
     const fU = fut ? fut.unrealized : 0, fR = fut ? fut.realizedNet : 0, fD = fut ? fut.dayPnl : 0;
     const snap = {
       date,
