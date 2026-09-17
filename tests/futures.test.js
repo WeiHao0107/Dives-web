@@ -62,3 +62,67 @@ test('getState：預設值合併、trades 預設空陣列', () => {
   assert.equal(st2.margin.TX.init, 1);
   assert.equal(st2.margin.MTX.init, 175250); // 沒給的合約用預設
 });
+
+test('summary：權益數、風險指標、追繳／砍倉距離、槓桿、曝險、今日損益', () => {
+  S.setCashAccounts([{ id: 'm1', name: '期貨保證金', currency: 'TWD', balance: 2150000 }]);
+  S.setFutures({ accountId: 'm1', trades: [tr({ id: 'a', month: '202610', lots: 2, price: 45900, fee: 120, tax: 367.2, time: T('2026-08-20') })] });
+  const prices = { 'FUT:TX@202610': { price: 46764, dailyChange: 305, prevClose: 46459 } };
+  const s = F.summary(null, prices, 8457115);       // 淨資產（不含期貨未平倉）
+  assert.equal(s.unrealized, (46764 - 45900) * 200 * 2);      // 345,600
+  assert.equal(s.equity, 2150000 + 345600);
+  assert.equal(s.initTotal, 1402000);
+  assert.equal(s.maintTotal, 1076000);
+  assert.ok(Math.abs(s.risk - 2495600 / 1402000) < 1e-9);
+  assert.equal(s.riskLevel, 'safe');
+  assert.equal(s.sens, 400);
+  assert.ok(Math.abs(s.callPts - (2495600 - 1076000) / 400) < 1e-9);          // 3,549
+  assert.ok(Math.abs(s.liqPts - (2495600 - 0.25 * 1402000) / 400) < 1e-9);    // 5,362.75
+  assert.equal(s.notional, 46764 * 400);
+  assert.ok(Math.abs(s.accLev - 46764 * 400 / 2495600) < 1e-9);
+  assert.ok(Math.abs(s.exposure - 46764 * 400 / (8457115 + 345600)) < 1e-9);
+  assert.equal(s.dayPnl, 305 * 400);
+  assert.equal(s.fees, 487.2);
+  assert.equal(s.realizedNet, -487.2);
+  assert.equal(s.cumulative, 345600 - 487.2);
+  assert.equal(s.lots, 2);
+  assert.equal(s.positions[0].pts, 864);
+});
+
+test('summary：無報價以均價計（未平倉 0）；無部位 → risk/accLev null、riskLevel null', () => {
+  S.setFutures({ trades: [tr({ month: '202610', lots: 1, price: 45000, time: T('2026-08-20') })] });
+  const s = F.summary(null, {}, null);
+  assert.equal(s.unrealized, 0);
+  assert.equal(s.notional, 45000 * 200);
+  assert.equal(s.exposure, null);
+  const empty = F.summary({ trades: [], margin: F.DEFAULTS.margin }, {}, 100);
+  assert.equal(empty.risk, null);
+  assert.equal(empty.riskLevel, null);
+  assert.equal(empty.accLev, null);
+});
+
+test('summary：淨空單 → callPts 為負（再漲才追繳）', () => {
+  S.setCashAccounts([{ id: 'm1', name: 'x', currency: 'TWD', balance: 1000000 }]);
+  S.setFutures({ accountId: 'm1', trades: [tr({ month: '202610', side: 'SELL', lots: 1, price: 46000, time: T('2026-08-20') })] });
+  const s = F.summary(null, { 'FUT:TX@202610': { price: 46500, dailyChange: 100, prevClose: 46400 } }, null);
+  assert.equal(s.unrealized, -100000);
+  assert.equal(s.dayPnl, -20000);
+  assert.ok(s.callPts < 0);
+});
+
+test('records：轉倉兩筆合併一列（價差、實現、費用）', () => {
+  const rid = 'r1';
+  const trades = [
+    tr({ id: 'o', month: '202609', lots: 2, price: 45000, time: T('2026-08-01') }),
+    tr({ id: 'c', month: '202609', side: 'SELL', lots: 2, price: 46300, fee: 120, tax: 370, time: T('2026-09-16'), rollId: rid }),
+    tr({ id: 'n', month: '202610', lots: 2, price: 46215, fee: 120, tax: 370, time: T('2026-09-16') + 1, rollId: rid }),
+  ];
+  const rec = F.records(trades);
+  assert.equal(rec.length, 2);
+  assert.equal(rec[0].kind, 'roll');
+  assert.equal(rec[0].from, '202609'); assert.equal(rec[0].to, '202610');
+  assert.equal(rec[0].spread, -85);
+  assert.equal(rec[0].realized, (46300 - 45000) * 200 * 2);
+  assert.equal(rec[0].fees, 980);
+  assert.equal(rec[0].lots, 2);
+  assert.equal(rec[1].kind, 'trade'); assert.equal(rec[1].closing, false);
+});

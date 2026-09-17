@@ -94,5 +94,69 @@ App.Futures = (function () {
     return { positions, events };
   }
 
-  return { MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay };
+  function riskLevel(r) { return r == null ? null : r >= 1 ? 'safe' : r >= 0.5 ? 'warn' : 'danger'; }
+
+  // 指標。state 空 → getState()；prices 為 S.getPrices() 格式；netWorthExFut = 不含期貨未平倉的淨資產（算整體曝險）
+  function summary(state, prices, netWorthExFut) {
+    const st = state || getState();
+    const pr = prices || {};
+    const margin = st.margin || DEFAULTS.margin;
+    const { positions, events } = replay(st.trades);
+    let unrealized = 0, initTotal = 0, maintTotal = 0, sens = 0, notional = 0, dayPnl = 0;
+    const rows = positions.map(p => {
+      const mult = MULT[p.contract] || 0;
+      const q = pr[priceKey(p.contract, p.month)];
+      const mark = q && q.price > 0 ? q.price : null;
+      const unr = mark != null ? (mark - p.avgEntry) * mult * p.netLots : 0;
+      const mk = margin[p.contract] || { init: 0, maint: 0 };
+      const notl = Math.abs(p.netLots) * mult * (mark != null ? mark : p.avgEntry);
+      unrealized += unr; initTotal += Math.abs(p.netLots) * mk.init; maintTotal += Math.abs(p.netLots) * mk.maint;
+      sens += p.netLots * mult; notional += notl;
+      dayPnl += (q && q.dailyChange ? q.dailyChange : 0) * mult * p.netLots;
+      return Object.assign({}, p, { mark, unrealized: unr, notional: notl, pts: mark != null ? (mark - p.avgEntry) * Math.sign(p.netLots) : null });
+    });
+    const acct = st.accountId ? S.getCashAccounts().find(a => a.id === st.accountId) : null;
+    const balance = acct ? (acct.balance || 0) : 0;
+    const equity = balance + unrealized;
+    const fees = (st.trades || []).reduce((s, t) => s + (t.fee || 0) + (t.tax || 0), 0);
+    const realizedGross = events.reduce((s, e) => s + e.realizedPnl, 0);
+    const risk = initTotal > 0 ? equity / initTotal : null;
+    const nw = netWorthExFut != null ? netWorthExFut + unrealized : null;
+    return {
+      positions: rows, events, balance, unrealized, equity, initTotal, maintTotal,
+      risk, riskLevel: riskLevel(risk),
+      callPts: sens ? (equity - maintTotal) / sens : null,
+      liqPts: sens ? (equity - 0.25 * initTotal) / sens : null,
+      sens, notional,
+      accLev: equity > 0 && notional > 0 ? notional / equity : null,
+      exposure: nw > 0 && notional > 0 ? notional / nw : null,
+      dayPnl, fees, realizedGross, realizedNet: realizedGross - fees, cumulative: realizedGross - fees + unrealized,
+      lots: rows.reduce((s, p) => s + Math.abs(p.netLots), 0), hasAccount: !!acct,
+    };
+  }
+
+  // 紀錄列（新→舊）：同 rollId 的兩筆合併成一列轉倉
+  function records(trades) {
+    const list = trades || getState().trades;
+    const evByTrade = {};
+    for (const e of replay(list).events) evByTrade[e.tradeId] = e;
+    const byRoll = {}, out = [];
+    for (const t of [...list].sort((a, b) => b.time - a.time)) {
+      const ev = evByTrade[t.id];
+      if (t.rollId) {
+        let g = byRoll[t.rollId];
+        if (!g) { g = byRoll[t.rollId] = { kind: 'roll', rollId: t.rollId, contract: t.contract, time: t.time, trades: [], fees: 0, realized: 0, lots: 0 }; out.push(g); }
+        g.trades.push(t); g.fees += (t.fee || 0) + (t.tax || 0); g.time = Math.min(g.time, t.time);
+        if (ev) { g.from = t.month; g.closePrice = t.price; g.lots = ev.lots; g.realized += ev.realizedPnl; }
+        else { g.to = t.month; g.openPrice = t.price; g.lots = g.lots || t.lots; }
+        if (g.closePrice != null && g.openPrice != null) g.spread = g.openPrice - g.closePrice;
+      } else {
+        out.push({ kind: 'trade', trade: t, contract: t.contract, month: t.month, side: t.side, lots: t.lots, price: t.price, time: t.time,
+          fees: (t.fee || 0) + (t.tax || 0), realized: ev ? ev.realizedPnl : null, closing: !!ev });
+      }
+    }
+    return out.sort((a, b) => b.time - a.time);
+  }
+
+  return { MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records };
 })();
