@@ -185,3 +185,29 @@ test('rollover：兩筆同 rollId、已實現、價差、帳戶變動；口數�
   assert.ok(Math.abs(S.getCashAccounts()[0].balance - (2150000 + 345600 - 240 - tax)) < 1e-6);
   assert.equal(F.rollover({ contract: 'TX', month: '202611', toMonth: '202610', lots: 1, closePrice: 1, openPrice: 1 }).ok, false); // 月份須晚於
 });
+
+test('parseTaifexMargins：期交所保證金表 → 三合約（排除客製化）與更新日期', () => {
+  const html = `<html><body><h3>股價指數類</h3><table><thead><tr><th>商品別</th><th>結算保證金</th><th>維持保證金</th><th>原始保證金</th></tr></thead>
+    <tbody><tr><td>臺股期貨</td><td>519,000</td><td>538,000</td><td>701,000</td></tr>
+    <tr><td>小型臺指</td><td>129,750</td><td>134,500</td><td>175,250</td></tr>
+    <tr><td>客製化小型臺指期貨</td><td>129,750</td><td>134,500</td><td>175,250</td></tr>
+    <tr><td>微型臺指期貨</td><td>25,950</td><td>26,900</td><td>35,050</td></tr>
+    <tr><td>電子期貨</td><td>1</td><td>2</td><td>3</td></tr></tbody></table>
+    <p>更新日期：2026/08/12</p></body></html>`;
+  const r = F.parseTaifexMargins(html);
+  assert.deepEqual(r.margin, { TX: { init: 701000, maint: 538000 }, MTX: { init: 175250, maint: 134500 }, TMF: { init: 35050, maint: 26900 } });
+  assert.equal(r.date, '2026/08/12');
+  assert.equal(F.parseTaifexMargins('<html>nothing</html>'), null);
+});
+
+test('parseFuturesDaily：只取指定月份日盤、結算價優先、升冪', () => {
+  const rows = [
+    { date: '2026-09-16', contract_date: '202610', trading_session: 'position', close: 46078, settlement_price: 46060 },
+    { date: '2026-09-15', contract_date: '202610', trading_session: 'position', close: 45740, settlement_price: 45727 },
+    { date: '2026-09-16', contract_date: '202610', trading_session: 'after_market', close: 46200, settlement_price: 0 },
+    { date: '2026-09-16', contract_date: '202609/202610', trading_session: 'position', close: -85, settlement_price: 0 },
+    { date: '2026-09-16', contract_date: '202611', trading_session: 'position', close: 46300, settlement_price: 46290 },
+    { date: '2026-09-17', contract_date: '202610', trading_session: 'position', close: 46445, settlement_price: 0 },
+  ];
+  assert.deepEqual(F.parseFuturesDaily(rows, '202610'), [{ date: '2026-09-15', close: 45727 }, { date: '2026-09-16', close: 46060 }, { date: '2026-09-17', close: 46445 }]);
+});

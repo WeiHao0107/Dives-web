@@ -228,6 +228,39 @@ App.Futures = (function () {
     return { ok: true, rollId, closeTrade: c.trade, openTrade: o.trade, realized: c.realized, spread: +openPrice - +closePrice };
   }
 
+  // ---- 外部資料解析（純函式，供 api.js 與測試）----
+  // 期交所「股價指數類保證金一覽表」HTML：<tr> 首欄 臺股期貨／小型臺指／微型臺指，欄序 結算／維持／原始；頁面另有「更新日期：YYYY/MM/DD」
+  function parseTaifexMargins(html) {
+    if (!html) return null;
+    const strip = x => String(x).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    const num = x => { const v = parseFloat(String(x).replace(/,/g, '')); return isFinite(v) && v > 0 ? v : null; };
+    const NAME = { '臺股期貨': 'TX', '小型臺指': 'MTX', '小型臺指期貨': 'MTX', '微型臺指': 'TMF', '微型臺指期貨': 'TMF' };
+    const margin = {};
+    for (const r of (html.match(/<tr[\s\S]*?<\/tr>/gi) || [])) {
+      const cells = (r.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map(strip);
+      if (cells.length < 4) continue;
+      const key = NAME[cells[0]];
+      if (!key || margin[key]) continue;                 // 「客製化小型臺指期貨」等不在 NAME 內
+      const maint = num(cells[2]), init = num(cells[3]);
+      if (maint && init && init >= maint) margin[key] = { init, maint };
+    }
+    if (!margin.TX) return null;
+    const dm = strip(html).match(/更新日期[:：]\s*(\d{4}\/\d{2}\/\d{2})/);
+    return { margin, date: dm ? dm[1] : null };
+  }
+  // FinMind TaiwanFuturesDaily rows → 指定月份、日盤（trading_session=position）、結算價優先，升冪 [{date, close}]
+  function parseFuturesDaily(rows, month) {
+    const out = [];
+    for (const r of (rows || [])) {
+      if (String(r.contract_date) !== String(month)) continue;
+      if (r.trading_session && r.trading_session !== 'position') continue;
+      const px = (+r.settlement_price > 0) ? +r.settlement_price : +r.close;
+      if (!(px > 0)) continue;
+      out.push({ date: r.date, close: px });
+    }
+    return out.sort((a, b) => a.date < b.date ? -1 : 1);
+  }
+
   return { MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
-    addTrade, deleteTrade, updateTrade, rollover };
+    addTrade, deleteTrade, updateTrade, rollover, parseTaifexMargins, parseFuturesDaily };
 })();
