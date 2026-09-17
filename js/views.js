@@ -337,7 +337,10 @@ App.Views = (function () {
       if (!e) return `<div class="stat-row"><div class="stat-lbl">${label}</div><div class="stat-val"><div class="stat-amt" style="color:var(--sub)">—</div></div></div>`;
       const amt = opts.pctMain ? pctTxt(e.pct) : sf(e.amount);
       let sub;
-      if (opts.trade) {
+      if (opts.trade && e.market === 'fut') {   // 期貨平倉／轉倉：大台 202610→202611 · 2 口 @ 46,764
+        const fpx = U.formatPrice(e.price).replace(/\.00$/, '');
+        sub = `${e.label} · ${e.lots} 口 @ ${fpx} · ${e.date}`;
+      } else if (opts.trade) {
         const usd = e.market === U.Market.us || e.market === U.Market.crypto;
         sub = `${e.symbol} · ${U.formatShares(e.shares)}${shareUnit(e.market)} @ ${usd ? '$' : ''}${U.formatPrice(e.price)} · ${e.date}`;
       } else {
@@ -361,6 +364,7 @@ App.Views = (function () {
       <div class="tr-grid">
         <div class="trg"><span class="trg-k">買入手續費</span><span class="trg-v">${nt(fee.buy)}</span></div>
         <div class="trg"><span class="trg-k">賣出手續費</span><span class="trg-v">${nt(fee.sell)}</span></div>
+        ${fee.fut > 0 ? `<div class="trg"><span class="trg-k">期貨費用</span><span class="trg-v">${nt(fee.fut)}</span></div>` : ''}
         <div class="trg"><span class="trg-k">交易筆數</span><span class="trg-v">${fee.count} 筆</span></div>
         <div class="trg"><span class="trg-k">平均每筆</span><span class="trg-v">${nt(fee.count ? fee.total / fee.count : 0)}</span></div>
       </div>
@@ -381,20 +385,26 @@ App.Views = (function () {
     if (level === 'all') {
       const st = C.tradingStats();
       const sm = C.buildSummary(C.buildPositions()); // 累計報酬（vs 投入本金）
+      const futAll = C.assetsSummary().fut;           // 期貨策略累計（已實現淨費用 + 未平倉）併入總損益；報酬率分母仍為股票投入本金
+      const futCum = futAll ? futAll.cumulative : 0;
+      const allPnl = sm.totalPnl + futCum;
+      const allPct = sm.totalCostBasisTwd > 1e-9 ? allPnl / sm.totalCostBasisTwd * 100 : 0;
+      const allDivPct = sm.totalCostBasisTwd > 1e-9 ? (allPnl + sm.totalDividendTwd) / sm.totalCostBasisTwd * 100 : 0;
       return `
         <div class="card stats-card">
           <div class="stats-title">自投入本金以來</div>
           <div class="tr-row">
-            <div class="tr-amt" style="color:${col(sm.totalPnl)}">${sf(sm.totalPnl)}</div>
-            <div class="tr-pct" style="color:${col(sm.totalReturnPct || 0)}">${pctTxt(sm.totalReturnPct || 0)}</div>
+            <div class="tr-amt" style="color:${col(allPnl)}">${sf(allPnl)}</div>
+            <div class="tr-pct" style="color:${col(allPct)}">${pctTxt(allPct)}</div>
           </div>
           <div class="tr-grid">
             <div class="trg"><span class="trg-k">投入本金</span><span class="trg-v">NT$ ${U.fmtKMBB(sm.totalCostBasisTwd)}</span></div>
             <div class="trg"><span class="trg-k">目前市值</span><span class="trg-v">NT$ ${U.fmtKMBB(sm.totalMarketValueTwd)}</span></div>
             <div class="trg"><span class="trg-k">未實現</span><span class="trg-v" style="color:${col(sm.totalUnrealizedPnl)}">${sf(sm.totalUnrealizedPnl)}</span></div>
             <div class="trg"><span class="trg-k">已實現</span><span class="trg-v" style="color:${col(sm.totalRealizedPnl)}">${sf(sm.totalRealizedPnl)}</span></div>
+            ${Math.abs(futCum) > 0.5 ? `<div class="trg"><span class="trg-k">期貨損益</span><span class="trg-v" style="color:${col(futCum)}">${sf(futCum)}</span></div>` : ''}
             <div class="trg"><span class="trg-k">股息收入</span><span class="trg-v">${sf(sm.totalDividendTwd)}</span></div>
-            <div class="trg"><span class="trg-k">含息報酬率</span><span class="trg-v" style="color:${col(sm.totalReturnWithDivPct || 0)}">${pctTxt(sm.totalReturnWithDivPct || 0)}</span></div>
+            <div class="trg"><span class="trg-k">含息報酬率</span><span class="trg-v" style="color:${col(allDivPct)}">${pctTxt(allDivPct)}</span></div>
             ${(() => { // 年化報酬率(XIRR,資金加權):未滿 90 天年化失真 → 顯示 --
               const x = C.portfolioXirr();
               if (!x) return '';
@@ -643,6 +653,7 @@ App.Views = (function () {
       r.key = +s.date.slice(8, 10); return r;
     });
   }
+  const futOf = x => (x.futRealizedPnl || 0) + (x.futUnrealizedTwd || 0);
   function mkReport(label, s, prev, cl) {
     const cost = s.totalCostBasisTwd;
     const pPnl = s.totalPnl - (prev ? prev.totalPnl : 0);
@@ -666,6 +677,9 @@ App.Views = (function () {
       periodReturnDivPct: cost > 1e-9 ? (pPnl + periodDiv) / cost * 100 : 0,
       periodRealizedPnl: s.realizedPnl - (prev ? prev.realizedPnl : 0),
       unrealizedPnl: s.unrealizedPnl,
+      // 期貨（已實現淨費用 + 未平倉；舊快照無此欄 → 0）
+      futPnl: futOf(s) - (prev ? futOf(prev) : 0),
+      futCum: futOf(s),
     };
   }
 
@@ -716,6 +730,7 @@ App.Views = (function () {
             <span>目前市值 <b>NT$ ${U.fmtKMBB(last.totalMarketValueTwd || 0)}</b></span>
             <span>未實現 <b style="color:${UI.pnlColor(last.unrealizedPnl)}">${U.fmtBannerSigned(last.unrealizedPnl)}</b></span>
             <span>已實現 <b style="color:${UI.pnlColor(last.realizedPnl)}">${U.fmtBannerSigned(last.realizedPnl)}</b></span>
+            ${Math.abs(hero.futCum) > 0.5 ? `<span>期貨 <b style="color:${UI.pnlColor(hero.futCum)}">${U.fmtBannerSigned(hero.futCum)}</b></span>` : ''}
             ${hero.dividendCum > 0 ? `<span>股息 <b style="color:${UI.pnlColor(1)}">${U.fmtBannerSigned(hero.dividendCum)}</b></span>` : ''}
           </div>
         </div>`;
@@ -741,6 +756,7 @@ App.Views = (function () {
           <div class="nw-cap">${hLabel}${hero.periodDividend > 0 ? ' · 含息' : ''}</div>
           <div class="rep-heroline"><span class="nw-num" style="color:${col}">${U.fmtBannerSigned(hero.periodPnlDiv)}</span><span class="rep-heropct" style="color:${UI.pnlColor(hero.periodReturnDivPct || 0)}">${U.fmtPct(hero.periodReturnDivPct)}</span></div>
           ${sparklineHtml(hSnaps.map(s => (s.totalPnl || 0) + C.dividendsUpTo(s.date)), col)}
+          ${Math.abs(hero.futPnl) > 0.5 ? `<div class="rep-chips"><span>股票 <b style="color:${UI.pnlColor(hero.periodPnl - hero.futPnl)}">${U.fmtBannerSigned(hero.periodPnl - hero.futPnl)}</b></span><span>期貨 <b style="color:${UI.pnlColor(hero.futPnl)}">${U.fmtBannerSigned(hero.futPnl)}</b></span>${hero.periodDividend > 0 ? `<span>股息 <b style="color:${UI.pnlColor(1)}">${U.fmtBannerSigned(hero.periodDividend)}</b></span>` : ''}</div>` : ''}
         </div>`;
       }
     }
@@ -760,7 +776,7 @@ App.Views = (function () {
         listHtml += `<div class="rep-prow${drill ? ' rep-prow-drill' : ''}"${drill ? ` data-key="${r.key}"` : ''}>
           <div class="rep-prow-main">
             <div class="rep-prow-lbl">${r.label}</div>
-            <div class="rep-prow-sub">總倉位 ${U.fmtKMBB(r.netAsset)} · 投入 ${U.fmtBannerSigned(r.newInvestment)}${r.periodDividend > 0 ? ' · 股息 ' + U.fmtBannerSigned(r.periodDividend) : ''}</div>
+            <div class="rep-prow-sub">總倉位 ${U.fmtKMBB(r.netAsset)} · 投入 ${U.fmtBannerSigned(r.newInvestment)}${r.periodDividend > 0 ? ' · 股息 ' + U.fmtBannerSigned(r.periodDividend) : ''}${Math.abs(r.futPnl) > 0.5 ? ' · 期貨 ' + U.fmtBannerSigned(r.futPnl) : ''}</div>
           </div>
           <div class="rep-prow-val">
             <div class="rep-prow-pnl" style="color:${UI.pnlColor(r.periodPnlDiv)}">${U.fmtBannerSigned(r.periodPnlDiv)}</div>
