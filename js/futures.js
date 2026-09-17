@@ -103,6 +103,14 @@ App.Futures = (function () {
     const pr = prices || {};
     const margin = st.margin || DEFAULTS.margin;
     const { positions, events } = replay(st.trades);
+    // 當日開倉口數（同股票：今日買入以成交價為基準，不把昨收→成交的跳空算進今日）
+    const today = App.Util.isoDate();
+    const todayOpen = {};
+    for (const t of st.trades || []) {
+      if (App.Util.isoDate(new Date(t.time)) !== today) continue;
+      const o = todayOpen[t.contract + '@' + t.month] || (todayOpen[t.contract + '@' + t.month] = { BUY: { lots: 0, cost: 0 }, SELL: { lots: 0, cost: 0 } });
+      o[t.side === 'SELL' ? 'SELL' : 'BUY'].lots += +t.lots || 0; o[t.side === 'SELL' ? 'SELL' : 'BUY'].cost += (+t.lots || 0) * (+t.price || 0);
+    }
     let unrealized = 0, initTotal = 0, maintTotal = 0, sens = 0, notional = 0, dayPnl = 0;
     const rows = positions.map(p => {
       const mult = MULT[p.contract] || 0;
@@ -113,7 +121,11 @@ App.Futures = (function () {
       const notl = Math.abs(p.netLots) * mult * (mark != null ? mark : p.avgEntry);
       unrealized += unr; initTotal += Math.abs(p.netLots) * mk.init; maintTotal += Math.abs(p.netLots) * mk.maint;
       sens += p.netLots * mult; notional += notl;
-      dayPnl += (q && q.dailyChange ? q.dailyChange : 0) * mult * p.netLots;
+      const dir = Math.sign(p.netLots), absLots = Math.abs(p.netLots);
+      const opened = (todayOpen[p.key] || {})[dir > 0 ? 'BUY' : 'SELL'];
+      const newLots = Math.min(absLots, opened ? opened.lots : 0), oldLots = absLots - newLots;
+      dayPnl += (q && q.dailyChange ? q.dailyChange : 0) * mult * oldLots * dir
+        + (mark != null && newLots > 0 ? (mark - opened.cost / opened.lots) * mult * newLots * dir : 0);
       return Object.assign({}, p, { mark, unrealized: unr, notional: notl, pts: mark != null ? (mark - p.avgEntry) * Math.sign(p.netLots) : null });
     });
     const acct = st.accountId ? S.getCashAccounts().find(a => a.id === st.accountId) : null;

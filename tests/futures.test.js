@@ -218,3 +218,18 @@ test('parseTaifexMargins：也接受 r.jina.ai 的 markdown 表格（CORS 代理
   assert.deepEqual(r.margin, { TX: { init: 701000, maint: 538000 }, MTX: { init: 175250, maint: 134500 }, TMF: { init: 35050, maint: 26900 } });
   assert.equal(r.date, '2026/08/12');
 });
+
+test('dayPnl：當日開倉以成交價為基準（不把昨收→成交的跳空算進今日）；昨日以前的以昨收計', () => {
+  const prices = { 'FUT:TMF@202610': { price: 46459, dailyChange: 399, prevClose: 46060 } };
+  const now = Date.now();
+  S.setFutures({ trades: [tr({ contract: 'TMF', month: '202610', lots: 1, price: 45901, time: now })] });
+  assert.equal(F.summary(null, prices, null).dayPnl, (46459 - 45901) * 10);          // 今日買 → 5,580
+  S.setFutures({ trades: [tr({ contract: 'TMF', month: '202610', lots: 1, price: 45901, time: now - 3 * 86400000 })] });
+  assert.equal(F.summary(null, prices, null).dayPnl, 399 * 10);                       // 之前買 → 3,990
+  // 今日加碼 1 口 + 舊有 1 口：舊的用昨收、新的用成交價
+  S.setFutures({ trades: [
+    tr({ contract: 'TMF', month: '202610', lots: 1, price: 45000, time: now - 3 * 86400000 }),
+    tr({ contract: 'TMF', month: '202610', lots: 1, price: 46200, time: now }),
+  ] });
+  assert.equal(F.summary(null, prices, null).dayPnl, 399 * 10 + (46459 - 46200) * 10);
+});
