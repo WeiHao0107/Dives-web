@@ -828,8 +828,8 @@ App.Views = (function () {
       for (const r of rowsOrder) {
         listHtml += `<div class="rep-prow${drill ? ' rep-prow-drill' : ''}"${drill ? ` data-key="${r.key}"` : ''}>
           <div class="rep-prow-main">
-            <div class="rep-prow-lbl">${r.label}</div>
-            <div class="rep-prow-sub">總倉位 ${U.fmtKMBB(r.netAsset)} · 投入 ${U.fmtBannerSigned(r.newInvestment)}${r.periodDividend > 0 ? ' · 股息 ' + U.fmtBannerSigned(r.periodDividend) : ''}${Math.abs(r.futPnl) > 0.5 ? ' · 期貨 ' + U.fmtBannerSigned(r.futPnl) : ''}</div>
+            <div class="rep-prow-lbl">${r.label}<span class="rep-prow-na">${U.fmtKMBB(r.netAsset)}</span></div>
+            <div class="rep-prow-sub">投入 ${U.fmtBannerSigned(r.newInvestment)}${r.periodDividend > 0 ? ' · 股息 ' + U.fmtBannerSigned(r.periodDividend) : ''}${Math.abs(r.futPnl) > 0.5 ? ' · 期貨 ' + U.fmtBannerSigned(r.futPnl) : ''}</div>
           </div>
           <div class="rep-prow-val">
             <div class="rep-prow-pnl" style="color:${UI.pnlColor(r.periodPnlDiv)}">${U.fmtBannerSigned(r.periodPnlDiv)}</div>
