@@ -105,6 +105,18 @@ netWorth = cashTwd + investTwd − liabTwd + 期貨未平倉損益
 ```
 另回傳 `invSummary`（含 `dayPnl` 等）與 `fut`（`App.Futures.summary`）。`cashLiabTwd()` 只回傳 `{ cashTwd, liabTwd }`。資產頁顯示時，保證金帳戶從「流動資金」搬到「期貨」卡（權益數＝餘額＋未平倉），總和不變。
 
+### 4.4 槓桿倍率 `leverageSummary()`
+設定 `Store.getLeverage()` = `{ show:false, futures:'notional'|'none', liab:'net'|'gross', mult:{SYMBOL:倍數} }`（`dives_leverage`，會同步、CSV `lev*` 列備份）。
+```
+stockMv    = Σ 持股市值（TWD）
+multExtra  = Σ 市值 × (mult[symbol] − 1)      // 未列出 = 1
+futNotional= futures==='none' ? 0 : fut.notional
+exposure   = stockMv + multExtra + futNotional
+denom      = liab==='gross' ? netWorth + liabTwd : netWorth
+ratio      = denom > 0 ? exposure / denom : null
+```
+只在 `show` 時由資產頁 Hero 顯示；倉位頁另有「期貨」卡（契約總值、各部位、風險指標），Hero 總倉位／今日漲跌仍只算股票。
+
 ---
 
 ## 5. 每日快照（`saveTodaySnapshot` / `makeSnapshot`）

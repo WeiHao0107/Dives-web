@@ -36,7 +36,7 @@
 | 畫面 | 功能重點 |
 |---|---|
 | <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/assets.png" width="180" /> | **資產** — 淨資產與今日漲跌、流動資金／投資／負債分類、每檔佔比環圈。點淨資產進走勢圖。 |
-| <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/portfolio.png" width="180" /> | **投資** — 依市場(台股／美股／加密)分組的持倉,市值、今日與未實現損益、佔比。 |
+| <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/portfolio.png" width="180" /> | **投資** — 依市場(台股／美股／加密)分組的持倉,市值、今日與未實現損益、佔比;有期貨時多一張「期貨」卡(契約總值、各部位、風險指標)。 |
 | <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/chart.png" width="180" /> | **走勢圖** — 淨資產／各類別走勢、漲幅、投入分解;全部／年初至今／自選日期,點擊釘選數值。 |
 | <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/report.png" width="180" /> | **報表** — 累計損益＋迷你走勢與投入／市值／未實現／已實現;年→月→日鑽取,右上角進統計。 |
 | <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/history.png" width="180" /> | **歷史** — 交易紀錄,買入成本／賣出獲利與比例、搜尋與漏斗篩選、頂部即時統計。 |
@@ -134,6 +134,7 @@
   - 保證金金額每日自動抓期交所公告,也可手改;到期前 7 天與風險指標低於 100% 會推播提醒
   - 平倉 / 轉倉的已實現損益、手續費、期交稅(契約值 × 0.002%)會自動記入保證金帳戶;期貨損益併入淨資產、每日快照、報表與統計
 - **負債**:可建立多筆(信貸、房貸…),以負值計入淨資產
+- **槓桿倍率**(設定 › 顯示 › 槓桿倍率,預設關閉):開啟後淨資產下方顯示「槓桿 1.35×」,點開看分解。**槓桿＝(Σ 持股市值 × 自訂倍數＋期貨契約值) ÷ 淨資產**;自訂倍數自行填(例 00631L → 2、TQQQ → 3、反向 −1,未列者 1),期貨可選不計、負債可選不計(分母改總資產)
 - **買賣連動**:新增交易時可選「現金帳戶」——買入自動扣款、賣出自動存入(依標的幣別過濾帳戶;也可選不使用);編輯 / 刪除交易會自動沖銷
 - 現金帳戶 / 負債 / 群組皆隨雲端同步與 CSV 備份
 

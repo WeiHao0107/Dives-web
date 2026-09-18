@@ -119,6 +119,8 @@ App.Csv = (function () {
       ['autoDivAcctUsName', nm(cashName[S.getAutoDivAcctUs()] || '')],
       ['autoDivUsTax', S.getAutoDivUsTax()],
       ['proxy', S.getProxy() || ''],
+      ...(lev => [['levShow', lev.show ? 1 : 0], ['levFutures', lev.futures], ['levLiab', lev.liab],
+        ...Object.keys(lev.mult).map(sym => ['levMult_' + sym, lev.mult[sym]])])(S.getLeverage()),
       ...(fst ? [
         ['futAccountName', nm(cashName[fst.accountId] || '')],
         ['futMargin_TX', fst.margin.TX.init + '/' + fst.margin.TX.maint],
@@ -402,9 +404,13 @@ App.Csv = (function () {
         const key = line.slice(0, idx).trim();
         const val = line.slice(idx + 1).trim();
         if (key.toLowerCase() === 'key') continue; // header
+        if (key.startsWith('levMult_')) { const n = parseFloat(val); if (!isNaN(n)) { const m = S.getLeverage().mult; m[key.slice(8)] = n; S.setLeverage({ mult: m }); } continue; }
         switch (key) {
           case 'dayMode': S.setDayMode(val); break;
           case 'pctBasis': S.setPctBasis(val); break;
+          case 'levShow': S.setLeverage({ show: val === '1' }); break;
+          case 'levFutures': S.setLeverage({ futures: val === 'none' ? 'none' : 'notional' }); break;
+          case 'levLiab': S.setLeverage({ liab: val === 'gross' ? 'gross' : 'net' }); break;
           case 'privacy': S.setPrivacy(val === '1'); break;
           case 'autoDiv': S.setAutoDivImport(val === '1'); break;
           case 'autoDivUs': S.setAutoDivUs(val === '1'); break;

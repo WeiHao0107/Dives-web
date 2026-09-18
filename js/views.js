@@ -26,8 +26,8 @@ App.Views = (function () {
 
   /* ===================== 投資（市場分類卡，沿用資產頁風格）===================== */
   // pf.open：各市場展開狀態（可同時展開多個）；預設全收合。排序固定依市值（大→小）
-  const pf = { open: null, catChart: null };
-  function resetPortfolioNav() { pf.catChart = null; }
+  const pf = { detailFut: false, open: null, catChart: null };
+  function resetPortfolioNav() { pf.catChart = null; pf.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
 
   // 通知鈴鐺（取代原更新鈕；資產/投資頁右上）：有未讀 → 紅點
   function notifBtnHtml() {
@@ -110,8 +110,12 @@ App.Views = (function () {
 
   function portfolio(root) {
     if (pf.catChart) return metricChartPage(root, pf.catChart, () => { pf.catChart = null; portfolio(root); });
+    if (pf.detailFut) return App.ViewsFutures.page(root, () => { pf.detailFut = false; portfolio(root); });
     const positions = C.buildPositions();
     const summary = C.buildSummary(positions);
+    // 期貨：有交易或已連結保證金帳戶才顯示卡；Hero 總倉位／今日漲跌只算股票，期貨在自己的卡
+    const futOn = !!(App.ViewsFutures && App.ViewsFutures.visible());
+    const fut = futOn ? C.assetsSummary().fut : null;
     const rate = S.getFxRate() || 31.5;
     const fmtPctBadge = v => (v >= 9.95 ? Math.round(v) : v.toFixed(v >= 1 ? 0 : 1)) + '%';
 
@@ -146,7 +150,7 @@ App.Views = (function () {
 
     // 市場卡（可同時展開多個；空市場不顯示）
     let html = '';
-    if (!positions.length) html += `<div class="empty" style="padding:48px 16px">尚無持倉，點右上 ＋ 新增交易</div>`;
+    if (!positions.length && !fut) html += `<div class="empty" style="padding:48px 16px">尚無持倉，點右上 ＋ 新增交易</div>`;
     for (const M of MKTS) {
       const list = byMk[M.key];
       if (!list.length) continue;
@@ -201,6 +205,8 @@ App.Views = (function () {
       html += `</div>`;
     }
 
+    if (fut) html += futPortfolioCard(fut, isOpen('fut'));
+
     // 上方（hero+統計+排序）固定，市場卡清單獨立捲動
     root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${html}</div></div>`;
     attachPullRefresh(root.querySelector('.page-list'));
@@ -220,11 +226,58 @@ App.Views = (function () {
     }));
     root.querySelectorAll('.as-htrend[data-trend]').forEach(t => t.addEventListener('click', e => {
       e.stopPropagation(); // 不觸發標頭收合
+      if (t.dataset.trend === 'fut') { App.ViewsFutures.showTrend(); pf.detailFut = true; portfolio(root); return; }
       pf.catChart = t.dataset.trend; portfolio(root);
     }));
     root.querySelectorAll('.pf-row').forEach(r =>
       r.addEventListener('click', () => openSymbolActions(r.dataset.sym)));
+    root.querySelectorAll('.pf-fut-row').forEach(r =>
+      r.addEventListener('click', () => { pf.detailFut = true; portfolio(root); }));
     maskAmounts(root);
+  }
+
+  // 倉位頁期貨卡：右上契約總值＋今日損益；展開列出各部位（口數、均價、契約值、到期）與風險指標
+  function futPortfolioCard(f, open) {
+    const F = App.Futures, GOLD = '#E5A322';
+    const d = f.dayPnl || 0;
+    const dArrow = d > 0 ? '▲' : d < 0 ? '▼' : '–';
+    const names = f.positions.map(p => F.LABEL[p.contract] + ' ' + Math.abs(p.netLots) + ' 口 · ' + p.month).join('、') || '尚無部位';
+    const trendBtn = `<button class="as-htrend" data-trend="fut"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16"/><path d="M7 14l3.5-3.5 3 2.5L19 8"/></svg></button>`;
+    let html = `<div class="card as-cat">
+      <div class="as-head ${open ? 'open oc-fut' : ''}" data-mk="fut" style="--cc:${GOLD}">
+        <div class="as-hleft">
+          <div class="mk-nameline"><span class="as-name">期貨</span>${open ? trendBtn : ''}<span class="mk-count">${f.lots} 口 · 契約值</span></div>
+          ${!open ? `<span class="as-hsummary">${names}</span>` : ''}
+        </div>
+        <div class="as-hright">
+          <span class="as-total" style="color:${GOLD}">${U.fmtWhole(f.notional)}</span>
+          <span class="as-hchg" style="color:${UI.pnlColor(d)}">${dArrow} ${U.fmtWhole(Math.abs(d))}</span>
+        </div>
+      </div>`;
+    if (open) {
+      const margin = F.getState().margin;
+      html += `<div class="as-body">`;
+      for (const p of f.positions) {
+        const init = Math.abs(p.netLots) * ((margin[p.contract] || {}).init || 0);
+        const pct = init > 0 ? p.unrealized / init * 100 : 0;
+        const ex = U.taipeiParts(new Date(p.expiry));
+        html += `<div class="as-row pf-row pf-fut-row">
+          <span class="pct-badge sm" style="background:${GOLD}">${F.LABEL[p.contract]}</span>
+          <div class="as-main">
+            <div class="as-title pf-title"><span class="pf-sym">${p.contract} ${p.month}</span><span class="pf-price">${p.netLots > 0 ? '' : '−'}${Math.abs(p.netLots)} 口 · 均 ${U.fmtWhole(p.avgEntry)}</span></div>
+            <div class="as-sub">契約值 ${U.fmtWhole(p.notional)} · ${ex.month}/${ex.day} 到期</div>
+          </div>
+          <div class="pf-val">
+            <div class="pf-mv" style="color:${UI.pnlColor(p.unrealized)}">${U.fmtBannerSigned(p.unrealized)}</div>
+            <div class="pf-pnl" style="color:${UI.pnlColor(p.unrealized)}">${U.fmtPct(pct)}</div>
+          </div>
+        </div>`;
+      }
+      if (!f.positions.length) html += `<div class="empty" style="padding:14px">尚無部位</div>`;
+      html += `<div class="as-row pf-fut-row pf-fut-foot"><span>風險指標 <b>${f.risk == null ? '--' : Math.round(f.risk * 100) + '%'}</b></span><span>權益數 ${U.fmtWhole(f.equity)} ›</span></div>`;
+      html += `</div>`;
+    }
+    return html + `</div>`;
   }
 
   function seg(v, label, cur) {
@@ -911,6 +964,19 @@ App.Views = (function () {
     return p.name && p.name !== p.symbol ? p.name : '';
   }
 
+  // 槓桿分解 sheet：股票市值 ＋ 自訂倍數加計 ＋ 期貨契約值 ＝ 總曝險，÷ 淨資產
+  function openLeverageSheet(l) {
+    const kv = (k, v, cls) => `<div class="lev-kv${cls ? ' ' + cls : ''}"><span class="k">${k}</span><b>${v}</b></div>`;
+    const sgn = v => (v < 0 ? '−' : '+') + U.fmtWhole(Math.abs(v));
+    let body = kv('股票市值', U.fmtWhole(l.stockMv));
+    for (const it of l.items) body += kv(`${dispName(it.symbol)} ×${it.mult}`, sgn(it.extra));
+    if (l.cfg.futures !== 'none') body += kv('期貨契約值', sgn(l.futNotional));
+    body += kv('總曝險', U.fmtWhole(l.exposure), 'tot');
+    body += kv(l.cfg.liab === 'gross' ? '總資產（不扣負債）' : `淨資產${l.liabTwd > 0 ? '（已扣負債 ' + U.fmtWhole(l.liabTwd) + '）' : ''}`, U.fmtWhole(l.denom));
+    body += `<div class="set-hint" style="margin-top:10px">槓桿 ＝ 總曝險 ÷ ${l.cfg.liab === 'gross' ? '總資產' : '淨資產'}。可在「設定 › 槓桿倍率」調整計算方式與各標的倍數。</div>`;
+    UI.openSheet('槓桿 ' + (l.ratio == null ? '--' : l.ratio.toFixed(2) + '×'), body, '');
+  }
+
   function assets(root) {
     if (as.catChart) return metricChartPage(root, as.catChart, () => { as.catChart = null; assets(root); });
     if (as.groupTrend) return groupTrendPage(root, as.groupTrend);
@@ -958,12 +1024,13 @@ App.Views = (function () {
     const prevNet = sum.netWorth - dayChange;
     const dayPct = Math.abs(prevNet) > 1e-9 ? dayChange / Math.abs(prevNet) * 100 : 0;
     const dayArrow = dayChange > 0 ? '▲' : dayChange < 0 ? '▼' : '–';
+    const lev = S.getLeverage().show ? C.leverageSummary() : null; // 槓桿倍率（設定開啟才算）
     // 固定頂部：淨資產 Hero（捲動時不動）
     const topHtml = `<div class="nw-hero">
       <div class="nw-open" id="nw-open">
         <div class="nw-cap">我的淨資產 (TWD)${eyeBtnHtml('as-eye')}</div>
         <div class="nw-num">${U.fmtWhole(sum.netWorth)}</div>
-        <div class="nw-day" style="color:${UI.pnlColor(dayChange)}">${dayArrow} ${U.fmtWhole(Math.abs(dayChange))} (${Math.abs(dayPct).toFixed(2)}%)</div>
+        <div class="nw-day"><span style="color:${UI.pnlColor(dayChange)}">${dayArrow} ${U.fmtWhole(Math.abs(dayChange))} (${Math.abs(dayPct).toFixed(2)}%)</span>${lev ? `<button class="nw-lev" id="as-lev">槓桿 ${lev.ratio == null ? '--' : lev.ratio.toFixed(2) + '×'}</button>` : ''}</div>
       </div>
       <div class="nw-btns">
         ${addWithRefreshHtml('as-add-btn', '新增')}
@@ -1123,6 +1190,7 @@ App.Views = (function () {
     bind('#as-add-btn', () => openAddChooser(() => assets(root)));
     bindRefresh(root);
     bind('#nw-open', () => { as.catChart = 'nw'; assets(root); });
+    { const lb = root.querySelector('#as-lev'); if (lb) lb.addEventListener('click', e => { e.stopPropagation(); openLeverageSheet(lev); }); }
     { const eye = root.querySelector('#as-eye'); if (eye) eye.addEventListener('click', e => { e.stopPropagation(); S.setPrivacy(!S.getPrivacy()); assets(root); }); }
     root.querySelectorAll('.as-row[data-kind]').forEach(r => r.addEventListener('click', () => {
       const kind = r.dataset.kind;
@@ -1638,6 +1706,7 @@ App.Views = (function () {
     flask: SET_ICON('<path d="M9 3v6l-4.5 8A2 2 0 0 0 6.3 20h11.4a2 2 0 0 0 1.8-3L15 9V3M8 3h8"/>'),
     trash: SET_ICON('<path d="M5 7h14M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2M7 7l1 13h8l1-13"/>'),
     repeat: SET_ICON('<path d="M17 3l3 3-3 3"/><path d="M20 6H8a4 4 0 0 0-4 4v1"/><path d="M7 21l-3-3 3-3"/><path d="M4 18h12a4 4 0 0 0 4-4v-1"/>'),
+    scale: SET_ICON('<path d="M12 3v18M4 7h16"/><path d="M4 7l-2.5 6a3 3 0 0 0 5 0L4 7ZM20 7l-2.5 6a3 3 0 0 0 5 0L20 7Z"/>'),
     bell: SET_ICON('<path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21a2 2 0 0 0 4 0"/>'),
     coin: SET_ICON('<circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10c0-1 1-1.7 2.5-1.7s2.5.7 2.5 1.7-1 1.4-2.5 1.7-2.5.7-2.5 1.7 1 1.7 2.5 1.7 2.5-.7 2.5-1.7"/>'),
   };
@@ -1660,6 +1729,7 @@ App.Views = (function () {
     if (set.sub === 'adv') return settingsAdv(root);
     if (set.sub === 'recurring') return settingsRecurring(root);
     if (set.sub === 'autodiv') return settingsAutoDiv(root);
+    if (set.sub === 'lev') return settingsLeverage(root);
     const lastTs = S.getPricesTs(), rate = S.getFxRate();
     const syncOn = !!(App.Sync && App.Sync.enabled());
     const lockOn = !!(App.Auth && App.Auth.isEnabled());
@@ -1679,6 +1749,7 @@ App.Views = (function () {
       ${nav('moon', 'set-theme', '外觀', { auto: '跟隨系統', light: '淺色', dark: '深色' }[S.getTheme()])}
       ${nav('pie', 'set-pb', '投資佔比基準', pbLabel)}
       ${nav('cal', 'set-dm', '當日漲跌計算', dmLabel)}
+      ${nav('scale', 'set-lev', '槓桿倍率', S.getLeverage().show ? '顯示' : '關閉')}
     </div>
     <div class="s-head">自動化</div>
     <div class="s-list">
@@ -1720,6 +1791,7 @@ App.Views = (function () {
     on('set-adv', () => { set.sub = 'adv'; settings(root); });
     on('set-recurring', () => { set.sub = 'recurring'; settings(root); });
     on('set-autodiv-page', () => { set.sub = 'autodiv'; settings(root); });
+    on('set-lev', () => { set.sub = 'lev'; settings(root); });
     on('set-refresh-now', () => { UI.toast('更新中…', 'info'); App.refresh(undefined, true); });
     on('set-theme', () => openChooser('外觀', [
       { v: 'auto', label: '跟隨系統', hint: '依 iOS 深/淺色模式自動切換' },
@@ -1897,6 +1969,64 @@ App.Views = (function () {
       { v: '10', label: '10%' },
       { v: '0', label: '0%', hint: '記稅前全額' },
     ], String(S.getAutoDivUsTax()), v => { S.setAutoDivUsTax(+v); settingsAutoDiv(root); }));
+  }
+
+  // ── 設定子頁：槓桿倍率（顯示開關、期貨／負債計法、自訂倍數）──
+  function settingsLeverage(root) {
+    const esc = s => (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const cfg = S.getLeverage();
+    const syms = Object.keys(cfg.mult).sort();
+    const swRow = (label, id, on) => `<div class="s-row s-info"><span class="s-label">${label}</span>
+      <label class="switch" style="margin-left:auto"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span></span></label></div>`;
+    const navRow = (id, label, val, extra) => `<button class="s-row"${id ? ` id="${id}"` : ''}${extra || ''}><span class="s-label">${label}</span><span class="s-val">${val}</span><span class="s-chev">›</span></button>`;
+    root.innerHTML = `<div class="page-full">${setSubHead('槓桿倍率')}
+      <div class="s-list">${swRow('在資產頁顯示', 'lv-show', cfg.show)}</div>
+      <div class="set-hint" style="margin:8px 16px 0">槓桿 ＝ (持股市值 × 倍數 ＋ 期貨契約值) ÷ 淨資產</div>
+      <div class="s-head">計算方式</div>
+      <div class="s-list">
+        ${navRow('lv-fut', '期貨', cfg.futures === 'none' ? '不計' : '契約值')}
+        ${navRow('lv-liab', '負債', cfg.liab === 'gross' ? '不計' : '從淨資產扣除')}
+      </div>
+      <div class="s-head">自訂倍數</div>
+      <div class="s-list">
+        ${syms.map(sym => navRow('', esc(sym), cfg.mult[sym] + ' 倍', ` data-sym="${esc(sym)}"`)).join('')}
+        <button class="s-row" id="lv-add"><span class="s-label" style="color:var(--primary)">＋ 新增標的</span></button>
+      </div>
+      <div class="set-hint" style="margin:8px 16px 0">未列出的標的一律 1 倍；正二填 2、三倍 ETF 填 3、反向可填 −1。</div>
+      <div style="height:16px"></div></div>`;
+    setSubBack(root);
+    const rerender = () => settingsLeverage(root);
+    const on = (id, fn) => { const el = root.querySelector('#' + id); if (el) el.addEventListener('click', fn); };
+    root.querySelector('#lv-show').addEventListener('change', e => { S.setLeverage({ show: e.target.checked }); if (App.Sync) App.Sync.markDirty(); });
+    on('lv-fut', () => openChooser('期貨', [
+      { v: 'notional', label: '契約值', hint: '口數 × 指數 × 乘數 計入曝險' },
+      { v: 'none', label: '不計', hint: '只看股票' },
+    ], cfg.futures, v => { S.setLeverage({ futures: v }); rerender(); }));
+    on('lv-liab', () => openChooser('負債', [
+      { v: 'net', label: '從淨資產扣除', hint: '分母＝淨資產，借錢投資會拉高槓桿' },
+      { v: 'gross', label: '不計', hint: '分母＝不扣負債的總資產' },
+    ], cfg.liab, v => { S.setLeverage({ liab: v }); rerender(); }));
+    // 新增／編輯：代號 + 倍數；倍數留空或 1 = 移除
+    const edit = sym => {
+      const held = C.buildPositions().map(p => p.symbol).filter(x => !(x in cfg.mult) || x === sym);
+      const ov = UI.openSheet(sym ? sym : '新增標的', `
+        ${sym ? '' : `<label class="fld">代號<input class="input" id="lv-sym" list="lv-held" placeholder="例：00631L、TQQQ" autocapitalize="characters"><datalist id="lv-held">${held.map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>`}
+        <label class="fld">倍數<input class="input" id="lv-mult" type="number" inputmode="decimal" step="0.1" value="${sym ? cfg.mult[sym] : 2}"></label>`,
+        `${sym ? '<button class="btn btn-ghost" id="lv-del">移除</button>' : '<button class="btn btn-ghost" id="lv-cancel">取消</button>'}<button class="btn btn-primary" id="lv-ok">儲存</button>`);
+      const save = (code, m) => { const mult = Object.assign({}, S.getLeverage().mult); if (m == null || m === 1) delete mult[code]; else mult[code] = m; S.setLeverage({ mult }); if (App.Sync) App.Sync.markDirty(); UI.closeSheet(); rerender(); };
+      on('lv-cancel', UI.closeSheet); on('lv-del', () => save(sym, null));
+      const okBtn = ov.querySelector('#lv-ok');
+      okBtn.addEventListener('click', () => {
+        const code = sym || (ov.querySelector('#lv-sym').value || '').trim().toUpperCase();
+        const m = parseFloat(ov.querySelector('#lv-mult').value);
+        if (!code) return UI.toast('請輸入代號', 'info');
+        if (isNaN(m)) return UI.toast('請輸入倍數', 'info');
+        save(code, m);
+      });
+      const first = ov.querySelector(sym ? '#lv-mult' : '#lv-sym'); if (first) first.focus();
+    };
+    on('lv-add', () => edit(null));
+    root.querySelectorAll('.s-row[data-sym]').forEach(b => b.addEventListener('click', () => edit(b.dataset.sym)));
   }
 
   // ── 設定子頁：定期定額 / 定期繳款 ──

@@ -12,6 +12,7 @@ App.ViewsFutures = (function () {
   const RISK_COL = { safe: '#34C759', warn: '#F59E0B', danger: '#E53935' };
   const st = { sub: null, trend: { metric: 'line', year: new Date().getFullYear() } };   // sub: null | 'trend' | 'settings'
   function reset() { st.sub = null; }
+  function showTrend() { st.sub = 'trend'; }   // 從倉位頁走勢鈕直接進走勢分頁
 
   const fmtW = v => U.fmtWhole(v);
   const sgn = v => (v >= 0 ? '+' : '−') + U.fmtWhole(Math.abs(v));
@@ -351,5 +352,5 @@ App.ViewsFutures = (function () {
     const first = ov.querySelector('#ns-0'); if (first) first.focus();
   }
 
-  return { visible, assetCardHtml, page, reset, openTradeForm };
+  return { visible, assetCardHtml, page, reset, showTrend, openTradeForm };
 })();

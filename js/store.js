@@ -32,6 +32,7 @@ App.Store = (function () {
     autoDivUsTax: 'dives_auto_div_us_tax',
     pctBasis: 'dives_pct_basis',
     dayMode: 'dives_day_mode',
+    leverage: 'dives_leverage',
     privacy: 'dives_privacy',
     chartRange: 'dives_chart_range',
     theme: 'dives_theme',
@@ -203,6 +204,11 @@ App.Store = (function () {
   // 當日漲跌計算方式：native=各市場當日(預設) | twday=以台股開盤起算(美股凌晨算昨天)
   function getDayMode() { return localStorage.getItem(K.dayMode) === 'twday' ? 'twday' : 'native'; }
   function setDayMode(m) { localStorage.setItem(K.dayMode, m === 'twday' ? 'twday' : 'native'); }
+  // ---- 槓桿倍率：{show, futures:'notional'|'none', liab:'net'|'gross', mult:{SYMBOL:倍數}} ----
+  // 預設關閉；持股 × 自訂倍數（未列出＝1），期貨計契約值，負債從淨資產扣除
+  const LEV_DEFAULT = { show: false, futures: 'notional', liab: 'net', mult: {} };
+  function getLeverage() { return Object.assign({}, LEV_DEFAULT, read(K.leverage, {}), { mult: Object.assign({}, (read(K.leverage, {}) || {}).mult || {}) }); }
+  function setLeverage(patch) { write(K.leverage, Object.assign(getLeverage(), patch)); }
   // ---- 隱藏金額（本機偏好，不上雲同步）----
   function getPrivacy() { return localStorage.getItem(K.privacy) === '1'; }
   function setPrivacy(v) { localStorage.setItem(K.privacy, v ? '1' : '0'); }
@@ -247,7 +253,7 @@ App.Store = (function () {
     getAutoDivImport, setAutoDivImport, getAutoDivAcct, setAutoDivAcct,
     getAutoDivUs, setAutoDivUs, getAutoDivAcctUs, setAutoDivAcctUs, getAutoDivUsTax, setAutoDivUsTax,
     getGroups, setGroups, getGroupMap, setGroupMap,
-    getPctBasis, setPctBasis, getDayMode, setDayMode, getTheme, setTheme,
+    getPctBasis, setPctBasis, getDayMode, setDayMode, getTheme, setTheme, getLeverage, setLeverage,
     getPrivacy, setPrivacy, getChartRange, setChartRange,
     clearAll,
   };

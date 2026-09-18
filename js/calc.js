@@ -401,6 +401,27 @@ App.Calc = (function () {
     };
   }
 
+  // 槓桿倍率：(Σ 持股市值 × 自訂倍數 ＋ 期貨契約值) ÷ 淨資產
+  // 設定（Store.getLeverage）：mult 未列出的標的 = 1 倍；futures 'none' 不計契約值；liab 'gross' 分母改用不扣負債的總資產
+  function leverageSummary() {
+    const cfg = S.getLeverage();
+    const rate = S.getFxRate() || 31.5;
+    const a = assetsSummary();
+    let stockMv = 0, multExtra = 0; const items = [];
+    for (const p of buildPositions()) {
+      const mk = U.normalizeMarketKey(p.market);
+      const mv = (mk === U.Market.us || mk === U.Market.crypto) ? p.marketValue * rate : p.marketValue;
+      const mult = +cfg.mult[p.symbol] || 1;
+      stockMv += mv;
+      if (mult !== 1) { const extra = mv * (mult - 1); multExtra += extra; items.push({ symbol: p.symbol, mult, mv, extra }); }
+    }
+    items.sort((x, y) => Math.abs(y.extra) - Math.abs(x.extra));
+    const futNotional = cfg.futures === 'none' ? 0 : (a.fut ? a.fut.notional : 0);
+    const exposure = stockMv + multExtra + futNotional;
+    const denom = cfg.liab === 'gross' ? a.netWorth + a.liabTwd : a.netWorth;
+    return { ratio: denom > 1e-9 ? exposure / denom : null, exposure, stockMv, multExtra, futNotional, denom, liabTwd: a.liabTwd, netWorth: a.netWorth, items, cfg };
+  }
+
   // 現金帳戶 / 負債 台幣總額（美金 ×匯率）
   function cashLiabTwd() {
     const rate = S.getFxRate() || 31.5;
@@ -1069,7 +1090,7 @@ App.Calc = (function () {
     computeAvgCostPosition, buildPositions, buildSummary,
     addTransaction, updateTransaction, deleteTransaction, recomputeRealized, realizedByTxId, firstOversell,
     addStockDividend, dividendsTotalTwd, dividendsBetween, dividendsUpTo, addDividend, updateDividend, deleteDividend, sharesHeldBefore,
-    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, txCashDelta, cashLiabTwd,
+    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, txCashDelta, cashLiabTwd,
     netWorthBuckets, findAbsurdFees, repairFees, buildGroupSeries, tradingStats, scopedStats, xirrRate, buildXirrFlows, portfolioXirr,
     recurringDueDates, isoAddDays, priceOnOrBefore, planFee, applyLiabilityPayment, investedBetween, feesSummary,
   };

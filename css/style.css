@@ -609,3 +609,16 @@ input, select { font-family: inherit; font-size: 15px; }
 .fx-actions .btn { flex: 1; padding: 10px 6px; font-size: 13px; }
 .fx-rec .tx-row { cursor: pointer; }
 .fx-sum { box-shadow: none; background: var(--soft); }
+
+/* ── 槓桿倍率（資產頁 Hero 小標籤 + 分解 sheet）── */
+.nw-day { display: flex; align-items: center; gap: 8px; }
+.nw-lev { flex: none; padding: 2px 9px; border-radius: 999px; background: var(--soft); color: var(--primary); font-size: 12px; font-weight: 700; line-height: 1.5; }
+.lev-kv { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--divider); font-size: 14px; }
+.lev-kv .k { color: var(--sub); }
+.lev-kv b { font-weight: 700; white-space: nowrap; }
+.lev-kv.tot { border-bottom: 0; font-size: 16px; margin-top: 2px; }
+/* 倉位頁期貨卡 */
+.as-head.open.oc-fut { background: rgba(229,163,34,0.12); }
+.as-head.open.oc-fut:active { background: rgba(229,163,34,0.2); }
+.pf-fut-foot { justify-content: space-between; font-size: 12px; color: var(--sub); background: rgba(229,163,34,0.07); }
+.pf-fut-foot b { color: var(--text); }
