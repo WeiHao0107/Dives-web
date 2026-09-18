@@ -2008,13 +2008,37 @@ App.Views = (function () {
     ], cfg.liab, v => { S.setLeverage({ liab: v }); rerender(); }));
     // 新增／編輯：代號 + 倍數；倍數留空或 1 = 移除
     const edit = sym => {
-      const held = C.buildPositions().map(p => p.symbol).filter(x => !(x in cfg.mult) || x === sym);
+      // 建議清單：先列持股（代號／名稱比對），再補線上搜尋結果
+      const held = C.buildPositions().filter(p => !(p.symbol in cfg.mult)).map(p => ({ code: p.symbol, name: p.name || p.symbol, market: p.market }));
       const ov = UI.openSheet(sym ? sym : '新增標的', `
-        ${sym ? '' : `<label class="fld">代號<input class="input" id="lv-sym" list="lv-held" placeholder="例：00631L、TQQQ" autocapitalize="characters"><datalist id="lv-held">${held.map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>`}
+        ${sym ? '' : `<label class="fld">代號<input class="input" id="lv-sym" placeholder="例：00631L、TQQQ" autocomplete="off" autocapitalize="characters"></label><div class="suggest" id="lv-suggest"></div>`}
         <label class="fld">倍數<input class="input" id="lv-mult" type="number" inputmode="decimal" step="0.1" value="${sym ? cfg.mult[sym] : 2}"></label>`,
         `${sym ? '<button class="btn btn-ghost" id="lv-del">移除</button>' : '<button class="btn btn-ghost" id="lv-cancel">取消</button>'}<button class="btn btn-primary" id="lv-ok">儲存</button>`);
       const save = (code, m) => { const mult = Object.assign({}, S.getLeverage().mult); if (m == null || m === 1) delete mult[code]; else mult[code] = m; S.setLeverage({ mult }); if (App.Sync) App.Sync.markDirty(); UI.closeSheet(); rerender(); };
       on('lv-cancel', UI.closeSheet); on('lv-del', () => save(sym, null));
+      const symInput = ov.querySelector('#lv-sym'), sug = ov.querySelector('#lv-suggest');
+      if (symInput) {
+        let timer = null, seq = 0;
+        const render = list => {
+          sug.innerHTML = list.map(r => `<div class="sug-item" data-code="${esc(r.code)}"><span class="sc">${esc(r.code)}</span><span class="sn">${esc(r.name)}</span><span class="sm">${U.marketLabel(r.market)}</span></div>`).join('');
+          sug.querySelectorAll('.sug-item').forEach(it => it.addEventListener('click', () => { symInput.value = it.dataset.code; sug.innerHTML = ''; ov.querySelector('#lv-mult').focus(); }));
+        };
+        const show = () => {
+          const q = symInput.value.trim().toUpperCase();
+          clearTimeout(timer); const my = ++seq;
+          const local = held.filter(h => !q || h.code.toUpperCase().includes(q) || (h.name || '').toUpperCase().includes(q));
+          render(local);
+          if (q.length < 2) return;
+          timer = setTimeout(async () => {
+            const res = await App.Api.searchSymbols(q).catch(() => []);
+            if (my !== seq) return;
+            const seen = new Set(local.map(h => h.code));
+            render(local.concat(res.filter(r => !seen.has(r.code)).slice(0, 8)));
+          }, 220);
+        };
+        symInput.addEventListener('input', show);
+        symInput.addEventListener('focus', show);
+      }
       const okBtn = ov.querySelector('#lv-ok');
       okBtn.addEventListener('click', () => {
         const code = sym || (ov.querySelector('#lv-sym').value || '').trim().toUpperCase();
