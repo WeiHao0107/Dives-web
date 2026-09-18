@@ -48,11 +48,19 @@ App.UI = (function () {
     ov.querySelector('.sheet-close').addEventListener('click', closeSheet);
     ov.addEventListener('click', e => { if (e.target === ov) closeSheet(); });
     requestAnimationFrame(() => ov.classList.add('show'));
+    // 手機鍵盤彈出時 visualViewport 變矮：把覆蓋層縮到可視範圍，sheet 才不會被鍵盤蓋住
+    const vv = window.visualViewport;
+    if (vv) {
+      const fit = () => { ov.style.height = vv.height + 'px'; ov.style.top = vv.offsetTop + 'px'; };
+      vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
+      ov._unfit = () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); };
+      fit();
+    }
     return ov;
   }
   function closeSheet() {
     const ov = document.getElementById('sheet-overlay');
-    if (ov) { ov.classList.remove('show'); setTimeout(() => ov.remove(), 250); }
+    if (ov) { if (ov._unfit) ov._unfit(); ov.classList.remove('show'); setTimeout(() => ov.remove(), 250); }
   }
 
   function confirmDialog(msg, onYes, yesLabel) {
