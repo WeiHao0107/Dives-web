@@ -417,6 +417,7 @@ App.Api = (function () {
     const byContract = {};
     for (const p of positions) (byContract[p.contract] = byContract[p.contract] || []).push(p.month);
     const start = U.isoDate(new Date(Date.now() - 12 * 864e5));
+    const liveP = futuresDayWindow() && Object.keys(byContract).length ? fetchYahooFutures() : Promise.resolve(null);
     for (const c in byContract) {
       let rows = [];
       try { rows = (await fetchJson(fmUrl({ dataset: 'TaiwanFuturesDaily', data_id: c, start_date: start }))).data || []; } catch (e) { continue; }
@@ -424,10 +425,31 @@ App.Api = (function () {
         const ser = App.Futures.parseFuturesDaily(rows, m);
         if (!ser.length) continue;
         const last = ser[ser.length - 1], prev = ser.length > 1 ? ser[ser.length - 2].close : null;
-        prices[App.Futures.priceKey(c, m)] = { price: last.close, dailyChange: prev != null ? last.close - prev : 0, prevClose: prev, date: last.date };
+        const key = App.Futures.priceKey(c, m);
+        prices[key] = keepNewer(prices[key], { price: last.close, dailyChange: prev != null ? last.close - prev : 0, prevClose: prev, date: last.date });
       }
     }
+    // 日盤時段（08:45–14:00，平日）：Yahoo 期貨總表的當下成交價；盤後 FinMind 公布當日結算價（同日期）後由結算價接手
+    const parsed = await liveP;
+    if (parsed) for (const c in byContract) for (const m of byContract[c]) {
+      const q = App.Futures.realtimeQuote(parsed, c, m);
+      if (q) prices[App.Futures.priceKey(c, m)] = Object.assign(q, { date: U.isoDate(), live: true });
+    }
     return prices;
+  }
+  // jina 偶爾回 Yahoo 的追蹤像素頁（無報價）→ 最多試 3 次，直到解析到報價；全失敗回 null
+  async function fetchYahooFutures() {
+    for (let i = 0; i < 3; i++) {
+      const r = App.Futures.parseYahooFutures(await fetchViaJina(YAHOO_FUT_URL).catch(() => ''));
+      if (Object.keys(r.TX).length || Object.keys(r.MTX).length) return r;
+    }
+    console.warn('futures realtime: no quotes after 3 tries');
+    return null;
+  }
+  const YAHOO_FUT_URL = 'https://tw.stock.yahoo.com/future/futures.html?fumr=futurefull';
+  function futuresDayWindow() {
+    const p = U.taipeiParts(), mins = p.hour * 60 + p.minute;
+    return !U.isWeekend() && mins >= 8 * 60 + 45 && mins < 14 * 60;
   }
   // 期交所保證金一覽表 → {margin, date} 或 null
   // 期交所直連一定被 CORS 擋 → 先走 r.jina.ai（免金鑰、支援 CORS，回 markdown，parser 也吃）；失敗再試直連／設定的 proxy
@@ -473,6 +495,7 @@ App.Api = (function () {
 
     const prices = S.getPrices();
     const nameUpdates = [];
+    const futP = refreshFutures(prices).catch(e => console.warn('futures refresh failed', e)); // 與股票並行（盤中 Yahoo 經 jina 較慢）
 
     // 匯率
     const fxP = fetchFx();
@@ -525,7 +548,7 @@ App.Api = (function () {
     }
 
     await fxP;
-    await refreshFutures(prices);
+    await futP;
     if (nameUpdates.length) S.upsertMeta(nameUpdates);
     S.setPrices(prices);
     return prices;

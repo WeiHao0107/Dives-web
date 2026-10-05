@@ -277,6 +277,34 @@ App.Futures = (function () {
     return out.sort((a, b) => a.date < b.date ? -1 : 1);
   }
 
-  return { MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
+  // Yahoo 期貨總表（經 r.jina.ai 的 markdown）→ { TX: { YYYYMM: {price, prevClose} }, MTX: {...} }
+  // 每檔一個區塊：名稱行（台指期2610 / 小型台指2610）、代碼行，接著 12 個欄位：
+  //   成交, 買進, 賣出, 漲跌, 漲跌%, 量, 開盤, 最高, 最低, 振幅, 參考價(昨結算), 未平倉 → 再一行時間
+  // 漲跌以「成交 − 參考價」自算（不依賴頁面上的正負號）；"近一/近二" 連續合約略過
+  const YAHOO_NAME = { '台指期': 'TX', '小型台指': 'MTX' };
+  function parseYahooFutures(md) {
+    const out = { TX: {}, MTX: {} };
+    const lines = String(md || '').split('\n').map(x => x.trim()).filter(Boolean);
+    const num = v => { const x = parseFloat(String(v).replace(/,/g, '')); return isFinite(x) && x > 0 ? x : null; };
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^(台指期|小型台指)(\d{4})$/.exec(lines[i]);
+      if (!m) continue;
+      const f = lines.slice(i + 2, i + 14);      // 跳過代碼行
+      if (f.length < 12) continue;
+      const price = num(f[0]), prevClose = num(f[10]);
+      if (price == null) continue;               // 尚無成交
+      out[YAHOO_NAME[m[1]]]['20' + m[2]] = { price, prevClose };
+    }
+    return out;
+  }
+  // 某合約月份的盤中報價；微台（Yahoo 無各月份）用同月份小台、再退大台；大小台缺一時互補（同一個加權指數，價差僅數點）
+  function realtimeQuote(parsed, contract, month) {
+    const pick = c => parsed && parsed[c] && parsed[c][month];
+    const q = contract === 'TX' ? (pick('TX') || pick('MTX')) : (pick('MTX') || pick('TX'));
+    if (!q) return null;
+    return { price: q.price, dailyChange: q.prevClose != null ? q.price - q.prevClose : 0, prevClose: q.prevClose };
+  }
+
+  return { parseYahooFutures, realtimeQuote, MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
     addTrade, deleteTrade, updateTrade, rollover, parseTaifexMargins, parseFuturesDaily };
 })();
