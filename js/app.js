@@ -3,7 +3,7 @@
  * ======================================================================= */
 (function () {
   const V = App.Views, S = App.Store, C = App.Calc, UI = App.UI, Api = App.Api;
-  App.VERSION = 'v147';
+  App.VERSION = 'v148';
 
   const TAB_ORDER = ['assets', 'portfolio', 'report', 'history', 'settings'];
   // 記住當前分頁，避免重新整理/下拉時跳回資產
@@ -606,12 +606,15 @@
   // 啟動後的背景作業：雲端拉取 + 報價刷新 + 預載台股代碼表
   function startBackground() {
     (async () => {
+      let syncFailed = false;
       if (App.Sync && App.Sync.enabled()) {
         const r = await App.Sync.pull();
         if (r.changed) renderCurrent();
+        syncFailed = !!r.error;
       }
       // 定期定額/繳款：拉取雲端後執行（lastRun 已同步 → 不會多裝置重複扣）
-      try {
+      // 拉雲端失敗時先不跑：本機 lastRun 可能是舊的，另一台已執行過會重複買入
+      if (!syncFailed) try {
         const n = await runRecurringPlans();
         // 有回補歷史日期的買入 → 重建走勢讓歷史快照反映；rebuildHistory 內含 renderCurrent
         if (n > 0) {

@@ -19,7 +19,7 @@ App.ViewsFutures = (function () {
   const fp = v => { const s = U.formatPrice(v); return s.endsWith('.00') ? s.slice(0, -3) : s; };
   const pct = r => r == null ? '--' : Math.round(r * 100) + '%';
   const mult = x => x == null ? '--' : x.toFixed(2) + '×';   // 槓桿／曝險固定兩位小數（1.02×）
-  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const esc = App.Util.esc;
   const daysTo = iso => Math.round((Date.parse(iso + 'T00:00:00+08:00') - Date.parse(U.isoDate() + 'T00:00:00+08:00')) / 864e5);
   const md = iso => (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10));
   const dayLine = (d, base) => { const p = Math.abs(base) > 1e-9 ? d / Math.abs(base) * 100 : 0; return `${d > 0 ? '▲' : d < 0 ? '▼' : '–'} ${fmtW(Math.abs(d))} (${Math.abs(p).toFixed(2)}%)`; };

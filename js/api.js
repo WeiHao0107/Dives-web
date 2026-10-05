@@ -47,7 +47,7 @@ App.Api = (function () {
     return unwrapJina(await r.text());
   }
   // 直連失敗（CORS / 網路）時改走設定的 proxy，再失敗改走 r.jina.ai
-  // （預設 corsproxy.io 現在需要金鑰、會回 401）
+  // （corsproxy.io 已需金鑰，不再當預設）
   async function fetchText(url) {
     try {
       const r = await fetch(url, { cache: 'no-store' });
@@ -125,8 +125,14 @@ App.Api = (function () {
       const close = U.parseNum(last.close);
       if (close == null) return null;
       const change = (typeof last.spread === 'number') ? last.spread : 0; // spread = 當日漲跌額
-      return { price: close, dailyChange: change, prevClose: close - change };
+      return { price: close, dailyChange: change, prevClose: close - change, date: last.date };
     } catch (e) { return null; }
+  }
+  // 報價日期較舊就不覆蓋（例：盤中 MIS 偶爾失敗 → FinMind 只有前一日收盤，不可蓋掉今天已拿到的即時價）
+  function keepNewer(old, q) {
+    if (!q) return old;
+    if (old && old.date && q.date && old.date > q.date) return old;
+    return q;
   }
 
   // ---- 台股歷史日線（FinMind，供重建歷史走勢）----
@@ -275,7 +281,7 @@ App.Api = (function () {
           const code = (it.c || ((it.key || '').split('_')[1] || '').split('.')[0] || '').trim();
           if (!code) continue;
           const q = misQuote(it);
-          if (q) out[code] = q;
+          if (q) out[code] = Object.assign(q, { date: U.isoDate() });
         }
       } catch (e) { console.warn('MIS realtime failed', e); }
     }
@@ -486,7 +492,7 @@ App.Api = (function () {
         while (queue.length) {
           const m = queue.shift();
           const q = await fetchTwPrice(m.code);
-          if (q) prices[m.code] = q;
+          prices[m.code] = keepNewer(prices[m.code], q);
         }
       }
       await Promise.all([twWorker(), twWorker(), twWorker()]);
@@ -586,6 +592,6 @@ App.Api = (function () {
     return results.slice(0, 30);
   }
 
-  return { fetchText, fetchJson, unwrapJina, misQuote, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchUsHistory, fetchDailySeries, fetchTwDividends, fetchUsDividends, fetchTwRealtime, fetchUsQuote, fetchCryptoQuotes, fetchCryptoHistory, cacheCgId, fetchFx, refreshPrices, searchSymbols, finnhubKey,
+  return { fetchText, fetchJson, unwrapJina, misQuote, keepNewer, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchUsHistory, fetchDailySeries, fetchTwDividends, fetchUsDividends, fetchTwRealtime, fetchUsQuote, fetchCryptoQuotes, fetchCryptoHistory, cacheCgId, fetchFx, refreshPrices, searchSymbols, finnhubKey,
     fetchFuturesDaily, fetchFuturesHistory, refreshFutures, fetchTaifexMargins };
 })();

@@ -199,4 +199,5 @@ netWorthBuckets(snapshots, gran, cashLiab) -> Bucket[]
 ## 9. CSV（`App.Csv`）
 
 - `exportCsv()`：輸出交易紀錄 + 每日快照，格式與 iOS App 相容，供下載 `portfolio_backup_YYYY-MM-DD.csv`。
-- `importCsv(content)`：解析回 `{ ok, txCount, snapCount, msg? }`；覆蓋現有資料。無快照時由呼叫端觸發「重建歷史走勢」。
+- `importCsv(content)`：解析回 `{ ok, txCount, snapCount, msg? }`。**分段存在才覆蓋**：有交易分段才換交易／已實現，有快照分段才換快照（只含設定等分段的檔案不清資料）。UI 匯入前先確認。無快照時由呼叫端觸發「重建歷史走勢」。
+- 交易第 8 欄 `Account`＝連結現金帳戶名稱（匯入依名稱重連，不重套現金）；快照第 31–35 欄為期貨分項（`Fut*`）。舊版／iOS 檔案缺欄位 → 視為空 / 0。

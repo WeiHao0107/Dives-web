@@ -5,6 +5,7 @@ window.App = window.App || {};
 
 App.Views = (function () {
   const U = App.Util, S = App.Store, C = App.Calc, UI = App.UI;
+  const esc = U.esc;
   const COL = { tw: '#E8823C', us: '#4A82C8', crypto: '#9B59D0', total: '#0F766E' }; // 台股橙、美股藍、加密紫
 
   // 共用：刷新後重繪目前分頁
@@ -166,7 +167,7 @@ App.Views = (function () {
       const dayChgPct = Math.abs(prevMv) > 1e-9 ? dayChg / Math.abs(prevMv) * 100 : 0;
       const dArrow = dayChg > 0 ? '▲' : dayChg < 0 ? '▼' : '–';
       const open = isOpen(M.key);
-      const names = [...list].sort((a, b) => mvTwd(b) - mvTwd(a)).slice(0, 4).map(p => p.name !== p.symbol ? p.name : p.symbol).join('、');
+      const names = [...list].sort((a, b) => mvTwd(b) - mvTwd(a)).slice(0, 4).map(p => esc(p.name !== p.symbol ? p.name : p.symbol)).join('、');
       html += `<div class="card as-cat">
         <div class="as-head ${open ? 'open ' + M.oc : ''}" data-mk="${M.key}" style="--cc:${M.color}">
           <div class="as-hleft">
@@ -298,13 +299,12 @@ App.Views = (function () {
   }
   function dispName(sym) {
     const m = S.metaMap()[sym] || {};
-    return m.alias || defaultName(sym);
+    return esc(m.alias || defaultName(sym)); // 只用於 HTML
   }
   function openRename(sym) {
     const m = S.metaMap()[sym] || {};
     const mkLabel = U.marketLabel(U.normalizeMarketKey(m.market || U.guessMarketBySymbol(sym)));
     const def = defaultName(sym);
-    const esc = s => (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const ov = UI.openSheet('重新命名',
       `<div style="padding:2px 2px 4px">
         <div class="set-hint" style="margin-bottom:8px">${sym} · ${mkLabel}</div>
@@ -333,7 +333,7 @@ App.Views = (function () {
       `<button class="btn btn-ghost" id="rename-sym">重新命名</button><button class="btn btn-ghost" id="add-more">新增交易</button><button class="btn btn-danger" id="del-sym">刪除此檔</button>`);
     ov.querySelector('#rename-sym').addEventListener('click', () => openRename(sym));
     ov.querySelector('#del-sym').addEventListener('click', () =>
-      UI.confirmDialog(`確定刪除 ${sym} 的所有交易與損益？`, () => { C.deleteSymbol(sym); UI.closeSheet(); App.afterDataChange([]); }, '刪除'));
+      UI.confirmDialog(`確定刪除 ${esc(sym)} 的所有交易與損益？`, () => { C.deleteSymbol(sym); UI.closeSheet(); App.afterDataChange([]); }, '刪除'));
     ov.querySelector('#add-more').addEventListener('click', () => { UI.closeSheet(); openTxForm(null, sym); });
     ov.querySelectorAll('.link-edit').forEach(b => b.addEventListener('click', () => {
       const tx = S.getTransactions().find(t => t.id === b.dataset.id);
@@ -542,7 +542,7 @@ App.Views = (function () {
     const filterOn = hist.type !== 'all' || hist.txFilter !== 'all' || hist.from || hist.to;
     const divCell = totalDiv > 0 ? `<div class="hs-cell"><div class="hs-k">股息</div><div class="hs-v" style="color:${UI.pnlColor(1)}">+${sumCur} ${U.fmtKMBB(totalDiv)}</div></div>` : '';
     fixedEl.innerHTML = `<div class="tx-bar">
-      <input class="input search" id="tx-search" placeholder="搜尋代碼或名稱" value="${hist.search}">
+      <input class="input search" id="tx-search" placeholder="搜尋代碼或名稱" value="${esc(hist.search)}">
       <button class="tx-funnel${filterOn ? ' on' : ''}" id="tx-funnel" aria-label="篩選"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg></button>
     </div>
     <div class="hist-sum">
@@ -961,7 +961,7 @@ App.Views = (function () {
   function groupRowName(p) {
     const m = U.normalizeMarketKey(p.market);
     if (m === U.Market.us || m === U.Market.crypto) return '';
-    return p.name && p.name !== p.symbol ? p.name : '';
+    return p.name && p.name !== p.symbol ? esc(p.name) : '';
   }
 
   // 槓桿分解 sheet：股票市值 ＋ 自訂倍數加計 ＋ 期貨契約值 ＝ 總曝險，÷ 淨資產
@@ -1043,9 +1043,9 @@ App.Views = (function () {
     const liabs = S.getLiabilities();
     const dateFrom = ts => ts ? (t => `${t.month}月${t.day}日 更新`)(U.taipeiParts(new Date(ts))) : '';
     const maxUpd = list => list.reduce((m, a) => Math.max(m, a.updatedAt || 0), 0);
-    const cashSummary = cashAccts.map(a => a.name).join('、') || '尚無帳戶';
-    const investSummary = [...groups.map(g => g.name), ungrouped.length ? '獨立持股' : null].filter(Boolean).join('、') || '尚無持倉';
-    const liabSummary = liabs.map(a => a.name).join('、') || '尚無負債';
+    const cashSummary = cashAccts.map(a => esc(a.name)).join('、') || '尚無帳戶';
+    const investSummary = [...groups.map(g => esc(g.name)), ungrouped.length ? '獨立持股' : null].filter(Boolean).join('、') || '尚無持倉';
+    const liabSummary = liabs.map(a => esc(a.name)).join('、') || '尚無負債';
 
     // 佔總資產比例（總資產 = 流動資金 + 投資 + 期貨權益數）
     const grossAssets = cashShown + sum.investTwd + (futOn && fut ? fut.equity : 0);
@@ -1098,7 +1098,7 @@ App.Views = (function () {
       for (const a of cashAccts) {
         const twd = a.currency === 'USD' ? (a.balance || 0) * rate : (a.balance || 0);
         html += `<div class="as-row" data-kind="cash" data-id="${a.id}">
-          <div class="as-main"><div class="as-title">${a.name}</div>
+          <div class="as-main"><div class="as-title">${esc(a.name)}</div>
             <div class="as-sub">${a.currency === 'USD' ? 'USD ' + U.formatPrice(a.balance || 0) + ' · r' + rate.toFixed(3) : '台幣帳戶'}</div></div>
           <div class="as-val">${U.fmtWhole(twd)}</div>
         </div>`;
@@ -1125,7 +1125,7 @@ App.Views = (function () {
         const gArrow = gDay > 0 ? '▲' : gDay < 0 ? '▼' : '–';
         html += `<div class="as-grow" data-gid="${g.id}">
           <span class="pct-badge sm">${fmtPctBadge(gPct)}</span>
-          <div class="as-main"><div class="as-title">${g.name}</div>
+          <div class="as-main"><div class="as-title">${esc(g.name)}</div>
             <div class="as-sub">${(byGroup[g.id] || []).length} 檔 ›</div></div>
           <div class="as-gv">
             <div class="as-val">${U.fmtWhole(gTotal)}</div>
@@ -1162,7 +1162,7 @@ App.Views = (function () {
       for (const a of liabs) {
         const twd = a.currency === 'USD' ? (a.balance || 0) * rate : (a.balance || 0);
         html += `<div class="as-row" data-kind="liab" data-id="${a.id}">
-          <div class="as-main"><div class="as-title">${a.name}</div>
+          <div class="as-main"><div class="as-title">${esc(a.name)}</div>
             <div class="as-sub">${a.currency === 'USD' ? 'USD ' + U.formatPrice(a.balance || 0) : '台幣'}</div></div>
           <div class="as-val" style="color:${UI.GAIN}">−${U.fmtWhole(twd)}</div>
         </div>`;
@@ -1365,7 +1365,7 @@ App.Views = (function () {
 
     const topHtml = `<div class="gd-head">
       <button class="gd-back" aria-label="返回">‹</button>
-      <div class="gd-title">${g.name}</div>
+      <div class="gd-title">${esc(g.name)}</div>
       <div class="gd-actions">
         <button class="gd-trend" aria-label="走勢圖"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16"/><path d="M7 14l3.5-3.5 3 2.5L19 8"/></svg></button>
         <button class="gd-menu" aria-label="選單">⋯</button>
@@ -1448,7 +1448,7 @@ App.Views = (function () {
 
     // 尚無資料 → 顯示載入、抓歷史、快取後重繪
     if (!as.gtCache || as.gtCache.gid !== gid) {
-      root.innerHTML = `<div class="page-full">${gtHead(g.name)}<div class="empty" style="padding:70px 16px">載入走勢中…</div></div>`;
+      root.innerHTML = `<div class="page-full">${gtHead(esc(g.name))}<div class="empty" style="padding:70px 16px">載入走勢中…</div></div>`;
       root.querySelector('.gd-back').addEventListener('click', () => { as.groupTrend = null; assets(root); });
       let series = [];
       try { series = await fetchGroupSeries(symbols); }
@@ -1517,7 +1517,7 @@ App.Views = (function () {
       }
     }
 
-    let html = gtHead(g.name) + `<div class="card">
+    let html = gtHead(esc(g.name)) + `<div class="card">
       <div class="seg seg-wide" id="gt-metric">${seg('line', '走勢', st.metric)}${seg('change', '漲幅', st.metric)}</div>
       ${isBar ? yearControlHtml(st, 'gt', years) : rangeControlHtml(chartRange, 'gt')}
       ${isBar
@@ -1569,7 +1569,7 @@ App.Views = (function () {
     const a = editing || {};
     const cur0 = a.currency || 'TWD';
     const body = `
-      <label class="fld">名稱<input class="input" id="mf-name" value="${a.name || ''}" placeholder="${isCash ? '例：Firstrade、台幣' : '例：信貸、房貸'}"></label>
+      <label class="fld">名稱<input class="input" id="mf-name" value="${esc(a.name)}" placeholder="${isCash ? '例：Firstrade、台幣' : '例：信貸、房貸'}"></label>
       <label class="fld">幣別
         <div class="fee-mode">
           <button class="fm-btn ${cur0 === 'TWD' ? 'active' : ''}" data-c="TWD">台幣</button>
@@ -1639,8 +1639,8 @@ App.Views = (function () {
   // 群組選單：重新命名 / 解散
   function openGroupMenu(gid, onDone) {
     const g = S.getGroups().find(x => x.id === gid); if (!g) return;
-    const ov = UI.openSheet(g.name,
-      `<label class="fld">重新命名<input class="input" id="gm-name" value="${g.name}"></label>`,
+    const ov = UI.openSheet(esc(g.name),
+      `<label class="fld">重新命名<input class="input" id="gm-name" value="${esc(g.name)}"></label>`,
       `<button class="btn btn-danger" id="gm-del">解散群組</button><button class="btn btn-ghost" id="gm-cancel">取消</button><button class="btn btn-primary" id="gm-ok">儲存</button>`);
     ov.querySelector('#gm-cancel').addEventListener('click', UI.closeSheet);
     ov.querySelector('#gm-ok').addEventListener('click', () => {
@@ -1665,13 +1665,13 @@ App.Views = (function () {
     const cur = gm[sym];
     let body = `<div class="ga-list">
       <div class="ga-item ${!cur ? 'on' : ''}" data-gid="">未分組${!cur ? ' ✓' : ''}</div>
-      ${groups.map(g => `<div class="ga-item ${cur === g.id ? 'on' : ''}" data-gid="${g.id}">${g.name}${cur === g.id ? ' ✓' : ''}</div>`).join('')}
+      ${groups.map(g => `<div class="ga-item ${cur === g.id ? 'on' : ''}" data-gid="${g.id}">${esc(g.name)}${cur === g.id ? ' ✓' : ''}</div>`).join('')}
     </div>
     <div class="adj-row" style="margin-top:10px">
       <input class="input" id="ga-new" placeholder="或建立新群組">
       <button class="btn btn-ghost btn-sm" id="ga-create">建立並加入</button>
     </div>`;
-    const ov = UI.openSheet(sym + ' 的群組', body, `<button class="btn btn-ghost" id="ga-cancel">關閉</button>`);
+    const ov = UI.openSheet(esc(sym) + ' 的群組', body, `<button class="btn btn-ghost" id="ga-cancel">關閉</button>`);
     ov.querySelector('#ga-cancel').addEventListener('click', UI.closeSheet);
     ov.querySelectorAll('.ga-item').forEach(it => it.addEventListener('click', () => {
       const gid = it.dataset.gid;
@@ -1717,7 +1717,7 @@ App.Views = (function () {
   // 單選選擇器（打勾）：供佔比基準／當日漲跌等
   function openChooser(title, opts, current, onPick) {
     const rows = opts.map(o => `<button class="chooser-row" data-v="${o.v}">
-      <div class="chooser-txt"><div class="chooser-label">${o.label}</div>${o.hint ? `<div class="chooser-hint">${o.hint}</div>` : ''}</div>
+      <div class="chooser-txt"><div class="chooser-label">${esc(o.label)}</div>${o.hint ? `<div class="chooser-hint">${esc(o.hint)}</div>` : ''}</div>
       <span class="chooser-check">${o.v === current ? '✓' : ''}</span></button>`).join('');
     const ov = UI.openSheet(title, `<div class="chooser">${rows}</div>`, '');
     ov.querySelectorAll('.chooser-row').forEach(b => b.addEventListener('click', () => { UI.closeSheet(); onPick(b.dataset.v); }));
@@ -1812,7 +1812,7 @@ App.Views = (function () {
     root.querySelector('#file-import').addEventListener('change', e => {
       const f = e.target.files[0]; if (!f) return;
       const reader = new FileReader();
-      reader.onload = async () => {
+      reader.onload = () => UI.confirmDialog(`匯入「${esc(f.name)}」？備份裡有的分段（交易、快照、帳戶…）會取代目前資料，沒有的分段保留不動。建議先匯出備份。`, async () => {
         const res = App.Csv.importCsv(String(reader.result));
         if (res.ok) {
           UI.toast(`匯入成功：${res.txCount} 筆交易${res.snapCount ? '、' + res.snapCount + ' 筆快照' : ''}${res.divCount ? '、' + res.divCount + ' 筆股利' : ''}${res.planCount ? '、' + res.planCount + ' 個定期計畫' : ''}${res.futCount ? '、' + res.futCount + ' 筆期貨' : ''}`, 'success');
@@ -1821,7 +1821,7 @@ App.Views = (function () {
           App.afterDataChange();
           if (!res.snapCount) { UI.toast('重建歷史走勢中…', 'info'); await App.rebuildHistory(); UI.toast('已重建歷史走勢', 'success'); }
         } else UI.toast(res.msg || '匯入失敗', 'error');
-      };
+      }, '匯入');
       reader.readAsText(f);
       e.target.value = '';
     });
@@ -1840,6 +1840,7 @@ App.Views = (function () {
   // ── 設定子頁：雲端同步 ──
   function settingsSync(root) {
     const onEnabled = !!(App.Sync && App.Sync.enabled());
+    const conflict = App.Sync && App.Sync.conflictInfo();
     root.innerHTML = `<div class="page-full">${setSubHead('雲端同步')}
       <div class="card setting-card">
         <div class="set-row">
@@ -1852,7 +1853,15 @@ App.Views = (function () {
         </div>
         <div class="set-hint" id="sync-status">${onEnabled ? '同步已啟用' : '各裝置貼同一組 token 即可自動同步同一份資料'}</div>
         <div class="set-hint"><a href="https://github.com/settings/tokens/new?scopes=gist&description=dives-sync" target="_blank" style="color:${COL.tw}">→ 點此產生 GitHub Token（已預選 gist 權限）</a></div>
-      </div></div>`;
+      </div>
+      ${conflict ? `<div class="card setting-card">
+        <div class="set-sub">⚠️ 同步衝突（${new Date(conflict.savedAt).toLocaleString('zh-TW')}）</div>
+        <div class="set-hint">另一台裝置也改過資料，目前顯示雲端版本；本機當時的版本已另存。</div>
+        <div class="set-row" style="margin-top:8px">
+          <button class="btn btn-ghost" id="sync-use-local" style="flex:1">改用本機版本</button>
+          <button class="btn btn-ghost" id="sync-keep-remote" style="flex:1">保留雲端版本</button>
+        </div>
+      </div>` : ''}</div>`;
     setSubBack(root);
     const syncStatusEl = root.querySelector('#sync-status');
     function fmtSyncStatus(s) {
@@ -1873,6 +1882,14 @@ App.Views = (function () {
     });
     const nowBtn = root.querySelector('#sync-now');
     if (nowBtn) nowBtn.addEventListener('click', async () => { const r = await App.Sync.pull(); if (r.error) UI.toast('同步失敗：' + r.error, 'error'); else { UI.toast('同步完成', 'success'); if (r.changed) App.renderCurrent(); } });
+    const useLocal = root.querySelector('#sync-use-local');
+    if (useLocal) useLocal.addEventListener('click', () => UI.confirmDialog('改用本機版本？雲端（另一台裝置）的變更會被覆蓋。', async () => {
+      const r = await App.Sync.useConflictLocal();
+      UI.toast(r.ok ? '已改用本機版本並上傳' : '找不到另存版本', r.ok ? 'success' : 'error');
+      App.renderCurrent(); settingsSync(root);
+    }, '改用本機'));
+    const keepRemote = root.querySelector('#sync-keep-remote');
+    if (keepRemote) keepRemote.addEventListener('click', () => { App.Sync.dismissConflict(); settingsSync(root); });
     const offBtn = root.querySelector('#sync-off');
     if (offBtn) offBtn.addEventListener('click', () => UI.confirmDialog('停用同步？(本機資料會保留，雲端 Gist 不刪除)', () => { App.Sync.disable(); UI.toast('已停用同步', 'info'); settings(root); }, '停用'));
   }
@@ -1889,12 +1906,12 @@ App.Views = (function () {
     root.innerHTML = `<div class="page-full">${setSubHead('報價來源與代理')}
       <div class="card setting-card">
         <div class="set-sub">Finnhub API 金鑰（美股即時報價，選填）</div>
-        <input class="input" id="set-finnhub" placeholder="留空 = 美股用收盤價（免金鑰）" value="${localStorage.getItem('dives_finnhub_key') || ''}">
+        <input class="input" id="set-finnhub" placeholder="留空 = 美股用收盤價（免金鑰）" value="${esc(localStorage.getItem('dives_finnhub_key'))}">
         <div class="set-hint">留空時美股改用 FinMind 收盤價（近日、非即時）。想要即時報價與美股搜尋，可到 <a href="https://finnhub.io/register" target="_blank" style="color:${COL.tw}">finnhub.io</a> 免費註冊取得金鑰後填入。</div>
         <div class="set-sub" style="margin-top:12px">FinMind Token（台股／美股收盤，可留空；註冊後填入可提高速率上限）</div>
-        <input class="input" id="set-finmind" placeholder="免金鑰可用，額度有限" value="${localStorage.getItem('dives_finmind_token') || ''}">
-        <div class="set-sub">CORS 代理（報價直連失敗時的後備）</div>
-        <input class="input" id="set-proxy" value="${S.getProxy()}">
+        <input class="input" id="set-finmind" placeholder="免金鑰可用，額度有限" value="${esc(localStorage.getItem('dives_finmind_token'))}">
+        <div class="set-sub">CORS 代理（選填；直連失敗時先試這裡，再改走 r.jina.ai）</div>
+        <input class="input" id="set-proxy" placeholder="留空 = 直接改走 r.jina.ai" value="${esc(S.getProxy())}">
         <button class="btn btn-block btn-ghost" id="btn-adv-save" style="margin-top:10px">儲存進階設定</button>
       </div></div>`;
     setSubBack(root);
@@ -1973,7 +1990,6 @@ App.Views = (function () {
 
   // ── 設定子頁：槓桿倍率（顯示開關、期貨／負債計法、自訂倍數）──
   function settingsLeverage(root) {
-    const esc = s => (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const cfg = S.getLeverage();
     const syms = Object.keys(cfg.mult).sort();
     const swRow = (label, id, on) => `<div class="s-row s-info"><span class="s-label">${label}</span>
@@ -2010,7 +2026,7 @@ App.Views = (function () {
     const edit = sym => {
       // 建議清單：先列持股（代號／名稱比對），再補線上搜尋結果
       const held = C.buildPositions().filter(p => !(p.symbol in cfg.mult)).map(p => ({ code: p.symbol, name: p.name || p.symbol, market: p.market }));
-      const ov = UI.openSheet(sym ? sym : '新增標的', `
+      const ov = UI.openSheet(sym ? esc(sym) : '新增標的', `
         ${sym ? '' : `<label class="fld">代號<input class="input" id="lv-sym" placeholder="例：00631L、TQQQ" autocomplete="off" autocapitalize="characters"></label><div class="suggest" id="lv-suggest"></div>`}
         <label class="fld">倍數<input class="input" id="lv-mult" type="number" inputmode="decimal" step="0.1" value="${sym ? cfg.mult[sym] : 2}"></label>`,
         `${sym ? '<button class="btn btn-ghost" id="lv-del">移除</button>' : '<button class="btn btn-ghost" id="lv-cancel">取消</button>'}<button class="btn btn-primary" id="lv-ok">儲存</button>`);
@@ -2055,7 +2071,6 @@ App.Views = (function () {
 
   // ── 設定子頁：定期定額 / 定期繳款 ──
   function settingsRecurring(root) {
-    const esc = s => (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const plans = S.getRecurringPlans();
     const today = U.isoDate();
     const liabMap = {}; for (const l of S.getLiabilities()) liabMap[l.id] = l;
@@ -2124,7 +2139,6 @@ App.Views = (function () {
 
   // 計畫編輯表單（新增 / 編輯定期定額 or 定期繳款）
   function openRecurringForm(kind, editing, onDone) {
-    const esc = s => (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const isDca = kind === 'dca';
     const p = editing || {};
     const today = U.isoDate();
@@ -2243,8 +2257,8 @@ App.Views = (function () {
         if (!q) { sug.innerHTML = ''; return; }
         timer = setTimeout(async () => {
           const res = await App.Api.searchSymbols(q);
-          sug.innerHTML = res.map(r => `<div class="sug-item" data-code="${r.code}" data-name="${encodeURIComponent(r.name)}" data-mk="${r.market}"${r.cgid ? ` data-cgid="${r.cgid}"` : ''}>
-            <span class="sc">${r.code}</span><span class="sn">${esc(r.name)}</span><span class="sm">${U.marketLabel(r.market)}</span></div>`).join('');
+          sug.innerHTML = res.map(r => `<div class="sug-item" data-code="${esc(r.code)}" data-name="${encodeURIComponent(r.name)}" data-mk="${r.market}"${r.cgid ? ` data-cgid="${r.cgid}"` : ''}>
+            <span class="sc">${esc(r.code)}</span><span class="sn">${esc(r.name)}</span><span class="sm">${U.marketLabel(r.market)}</span></div>`).join('');
           sug.querySelectorAll('.sug-item').forEach(it => it.addEventListener('click', () => {
             const name = decodeURIComponent(it.dataset.name);
             symInput.value = it.dataset.code + ' ' + name;
@@ -2425,7 +2439,7 @@ App.Views = (function () {
       const want = (mk === U.Market.us || mk === U.Market.crypto) ? 'USD' : 'TWD';
       const keep = sel.value || (editing ? p.accountId : '');
       const opts = S.getCashAccounts().filter(a => a.currency === want);
-      sel.innerHTML = '<option value="">不導入（只計入報酬統計）</option>' + opts.map(a => `<option value="${a.id}">${a.name}（${a.currency} ${U.formatPrice(a.balance || 0)}）</option>`).join('');
+      sel.innerHTML = '<option value="">不導入（只計入報酬統計）</option>' + opts.map(a => `<option value="${a.id}">${esc(a.name)}（${a.currency} ${U.formatPrice(a.balance || 0)}）</option>`).join('');
       if (keep && opts.some(a => a.id === keep)) sel.value = keep;
     }
     refreshAcct();
@@ -2438,8 +2452,8 @@ App.Views = (function () {
         if (!q) { sug.innerHTML = ''; return; }
         timer = setTimeout(async () => {
           const res = await App.Api.searchSymbols(q);
-          sug.innerHTML = res.map(r => `<div class="sug-item" data-code="${r.code}" data-name="${encodeURIComponent(r.name)}" data-mk="${r.market}"${r.cgid ? ` data-cgid="${r.cgid}"` : ''}>
-            <span class="sc">${r.code}</span><span class="sn">${r.name}</span><span class="sm">${U.marketLabel(r.market)}</span></div>`).join('');
+          sug.innerHTML = res.map(r => `<div class="sug-item" data-code="${esc(r.code)}" data-name="${encodeURIComponent(r.name)}" data-mk="${r.market}"${r.cgid ? ` data-cgid="${r.cgid}"` : ''}>
+            <span class="sc">${esc(r.code)}</span><span class="sn">${esc(r.name)}</span><span class="sm">${U.marketLabel(r.market)}</span></div>`).join('');
           sug.querySelectorAll('.sug-item').forEach(it => it.addEventListener('click', () => {
             const name = decodeURIComponent(it.dataset.name);
             symInput.value = it.dataset.code + ' ' + name; sug.innerHTML = '';
@@ -2454,7 +2468,7 @@ App.Views = (function () {
     $('#dv-cancel').addEventListener('click', UI.closeSheet);
     if ($('#dv-del')) $('#dv-del').addEventListener('click', () => UI.confirmDialog('刪除這筆？', () => {
       if (isCash) C.deleteDividend(p.id);
-      else C.deleteTransaction(p.id);
+      else { const r = C.deleteTransaction(p.id); if (!r.ok) return UI.toast(r.msg, 'error'); }
       UI.closeSheet(); App.afterDataChange([p.symbol]);
     }, '刪除'));
 
@@ -2506,7 +2520,7 @@ App.Views = (function () {
       </div>
       <label class="fld">股票代碼
         ${ed ? `<div class="locked">${ed.symbol} <span>🔒</span></div>`
-        : `<input class="input" id="tx-sym" autocomplete="off" placeholder="代碼或名稱（2330、台積電、AAPL…）" value="${presetSym || ''}">
+        : `<input class="input" id="tx-sym" autocomplete="off" placeholder="代碼或名稱（2330、台積電、AAPL…）" value="${esc(presetSym)}">
            <div class="suggest" id="tx-suggest"></div>`}
       </label>
       <label class="fld">交易日期
@@ -2608,7 +2622,7 @@ App.Views = (function () {
       const keep = sel.value;
       const opts = S.getCashAccounts().filter(a => a.currency === wantCur);
       sel.innerHTML = '<option value="">不使用現金帳戶</option>' +
-        opts.map(a => `<option value="${a.id}">${a.name}（${a.currency} ${U.formatPrice(a.balance || 0)}）</option>`).join('');
+        opts.map(a => `<option value="${a.id}">${esc(a.name)}（${a.currency} ${U.formatPrice(a.balance || 0)}）</option>`).join('');
       if (opts.some(a => a.id === keep)) sel.value = keep;
     }
     refreshAcctOptions(); syncPriceCur();
@@ -2626,8 +2640,8 @@ App.Views = (function () {
         refreshAcctOptions(); syncPriceCur();
         timer = setTimeout(async () => {
           const res = await App.Api.searchSymbols(q);
-          sug.innerHTML = res.map(r => `<div class="sug-item" data-code="${r.code}" data-name="${encodeURIComponent(r.name)}" data-mk="${r.market}"${r.cgid ? ` data-cgid="${r.cgid}"` : ''}>
-            <span class="sc">${r.code}</span><span class="sn">${r.name}</span><span class="sm">${U.marketLabel(r.market)}</span></div>`).join('');
+          sug.innerHTML = res.map(r => `<div class="sug-item" data-code="${esc(r.code)}" data-name="${encodeURIComponent(r.name)}" data-mk="${r.market}"${r.cgid ? ` data-cgid="${r.cgid}"` : ''}>
+            <span class="sc">${esc(r.code)}</span><span class="sn">${esc(r.name)}</span><span class="sm">${U.marketLabel(r.market)}</span></div>`).join('');
           sug.querySelectorAll('.sug-item').forEach(it => it.addEventListener('click', () => {
             const name = decodeURIComponent(it.dataset.name);
             symInput.value = it.dataset.code + ' ' + name;
@@ -2679,7 +2693,9 @@ App.Views = (function () {
       const del = document.createElement('button');
       del.className = 'btn btn-danger'; del.textContent = '刪除';
       del.addEventListener('click', () => UI.confirmDialog('確定刪除這筆交易？', () => {
-        const sym = ed.symbol; C.deleteTransaction(ed.id); UI.closeSheet(); App.afterDataChange([sym]);
+        const sym = ed.symbol; const r = C.deleteTransaction(ed.id);
+        if (!r.ok) return UI.toast(r.msg, 'error');
+        UI.closeSheet(); App.afterDataChange([sym]);
       }, '刪除'));
       foot.insertBefore(del, foot.firstChild);
     }

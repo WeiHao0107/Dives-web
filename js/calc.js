@@ -228,14 +228,18 @@ App.Calc = (function () {
     return { ok: true, symbol: tx.symbol };
   }
 
+  // 刪除買入／配股前驗證：不得讓後面的賣出超賣（否則賣出會被當成零成本、產生假獲利）
   function deleteTransaction(id) {
     let txs = S.getTransactions();
     const tx = txs.find(t => t.id === id);
-    if (!tx) return;
+    if (!tx) return { ok: false, msg: '找不到交易' };
+    const bad = firstOversell(txs.filter(t => t.symbol === tx.symbol && t.id !== id));
+    if (bad) return { ok: false, msg: '無法刪除：' + oversellMsg(bad, null) + '，請先刪除或修改該筆賣出' };
     if (tx.accountId) S.adjustCashBalance(tx.accountId, -txCashDelta(tx)); // 沖銷現金效果
     txs = txs.filter(t => t.id !== id);
     S.setTransactions(txs);
     recomputeRealized(tx.symbol);
+    return { ok: true, symbol: tx.symbol };
   }
 
   // 重播某代碼所有交易，重建已實現損益

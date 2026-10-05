@@ -12,7 +12,16 @@ App.Auth = (function () {
     enabled: 'dives_lock_enabled',
     pin: 'dives_lock_pin', salt: 'dives_lock_salt', pinLen: 'dives_lock_pinlen',
     cred: 'dives_lock_cred', timeout: 'dives_lock_timeout',
+    fails: 'dives_lock_fails', until: 'dives_lock_until',
   };
+  // 連續輸錯 5 次起鎖住 30 秒，之後每多 5 次加倍（存本機，重開 App 也算）
+  function lockedFor() { return Math.max(0, (+localStorage.getItem(K.until) || 0) - Date.now()); }
+  function noteFail() {
+    const n = (+localStorage.getItem(K.fails) || 0) + 1;
+    localStorage.setItem(K.fails, String(n));
+    if (n % 5 === 0) localStorage.setItem(K.until, String(Date.now() + 30000 * Math.pow(2, n / 5 - 1)));
+  }
+  function clearFails() { localStorage.removeItem(K.fails); localStorage.removeItem(K.until); }
 
   let unlocked = false;
   let hiddenAt = 0;
@@ -92,7 +101,7 @@ App.Auth = (function () {
   // ---- 啟用 / 停用 ----
   async function enable(pin) { await setPin(pin); localStorage.setItem(K.enabled, '1'); unlocked = true; }
   function disable() {
-    [K.enabled, K.pin, K.salt, K.pinLen, K.cred].forEach(k => localStorage.removeItem(k));
+    [K.enabled, K.pin, K.salt, K.pinLen, K.cred, K.fails, K.until].forEach(k => localStorage.removeItem(k));
     unlocked = true;
   }
 
@@ -145,14 +154,21 @@ App.Auth = (function () {
       k === '' ? `<span class="pin-key empty"></span>` : `<button class="pin-key" data-k="${k}">${k}</button>`).join('');
 
     async function submit() {
+      const wait = lockedFor();
+      if (wait > 0) {
+        entered = ''; renderDots();
+        subEl.textContent = `輸錯太多次，請 ${Math.ceil(wait / 1000)} 秒後再試`;
+        return;
+      }
       if (await verifyPin(entered)) {
         unlock();
       } else {
+        noteFail();
         entered = '';
-        subEl.textContent = '密碼錯誤，請重試';
+        subEl.textContent = lockedFor() > 0 ? `輸錯太多次，請 ${Math.ceil(lockedFor() / 1000)} 秒後再試` : '密碼錯誤，請重試';
         renderDots(true);
         if (navigator.vibrate) navigator.vibrate(200);
-        window.setTimeout(() => { subEl.textContent = '輸入密碼解鎖'; renderDots(); }, 800);
+        if (!(lockedFor() > 0)) window.setTimeout(() => { subEl.textContent = '輸入密碼解鎖'; renderDots(); }, 800);
       }
     }
     pad.querySelectorAll('.pin-key[data-k]').forEach(b => b.addEventListener('click', () => {
@@ -186,6 +202,7 @@ App.Auth = (function () {
   }
 
   function unlock() {
+    clearFails();
     unlocked = true;
     hiddenAt = Date.now();
     const ov = document.getElementById('lock-overlay');

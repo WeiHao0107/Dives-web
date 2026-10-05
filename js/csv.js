@@ -2,7 +2,7 @@
  * csv.js — 匯出/匯入備份（單一 CSV 分段格式）
  *   前段（# TRANSACTIONS / # SNAPSHOTS）與 iOS app 相容；
  *   完整備份分段：# ACCOUNTS / # GROUPS / # DIVIDENDS / # RECURRING / # META / # SETTINGS
- *   帳戶/負債連結一律以「名稱」存（匯入時 id 重生）；缺分段不動既有資料（向後相容）。
+ *   帳戶/負債連結一律以「名稱」存（匯入時 id 重生）；缺分段不動既有資料（含交易、快照；向後相容）。
  *   安全：不匯出 API 金鑰與 App 鎖（憑證/裝置綁定），還原後需自行重設。
  * ======================================================================= */
 window.App = window.App || {};
@@ -19,19 +19,22 @@ App.Csv = (function () {
     'UsUnrealizedPnlTwd', 'TwRealizedPnl', 'UsRealizedPnlTwd', 'TwTotalPnl',
     'UsTotalPnlTwd', 'TwReturnPct', 'UsReturnPct', 'TotalReturnPct',
     'CryptoMarketValueTwd', 'CryptoCostBasisTwd', 'CryptoUnrealizedPnlTwd', 'CryptoRealizedPnlTwd',
-    'CashAccountsTwd', 'LiabilitiesTwd', 'NetWorth'
+    'CashAccountsTwd', 'LiabilitiesTwd', 'NetWorth',
+    'FutUnrealizedTwd', 'FutRealizedPnl', 'FutNotionalTwd', 'FutEquityTwd', 'FutDayPnl'
   ];
 
   function exportCsv() {
     const lines = [];
     const mmap = S.metaMap();
 
+    // 第 8 欄 Account：連結的現金帳戶名稱（匯入時依名稱重連；舊版/iOS 無此欄）
+    const acctName = {}; for (const a of S.getCashAccounts()) acctName[a.id] = String(a.name || '').replace(/,/g, '，');
     lines.push('# TRANSACTIONS');
-    lines.push('Symbol,Market,Type,Shares,Price,Fee,Time');
+    lines.push('Symbol,Market,Type,Shares,Price,Fee,Time,Account');
     const txs = [...S.getTransactions()].sort((a, b) => a.time - b.time);
     for (const t of txs) {
       const market = mmap[t.symbol]?.market || U.Market.unknown;
-      lines.push([t.symbol, market, t.type, t.shares, t.price, t.fee, Math.round(t.time)].join(','));
+      lines.push([t.symbol, market, t.type, t.shares, t.price, t.fee, Math.round(t.time), (t.accountId && acctName[t.accountId]) || ''].join(','));
     }
 
     lines.push('');
@@ -48,7 +51,8 @@ App.Csv = (function () {
         s.cryptoMarketValueTwd || 0, s.cryptoCostBasisTwd || 0,
         s.cryptoUnrealizedPnlTwd || 0, s.cryptoRealizedPnlTwd || 0,
         s.cashAccountsTwd || 0, s.liabilitiesTwd || 0,
-        s.netWorth != null ? s.netWorth : (s.netAsset || 0)
+        s.netWorth != null ? s.netWorth : (s.netAsset || 0),
+        s.futUnrealizedTwd || 0, s.futRealizedPnl || 0, s.futNotionalTwd || 0, s.futEquityTwd || 0, s.futDayPnl || 0
       ].join(','));
     }
 
@@ -187,7 +191,7 @@ App.Csv = (function () {
         const fee = parseFloat(p[5]) || 0;
         const time = parseInt(p[6], 10) || Date.now();
         if (!sym || (type !== 'BUY' && type !== 'SELL' && type !== 'STOCK_DIV')) continue;
-        parsed.push({ sym, market, type, shares, price, fee, time });
+        parsed.push({ sym, market, type, shares, price, fee, time, acct: (p[7] || '').trim() });
       } else {
         if (p.length < 6) continue;
         const sym = U.sanitizeSymbol(p[0]);
@@ -231,13 +235,15 @@ App.Csv = (function () {
           // 現金/負債/淨資產（舊版無此欄 → 淨資產以 netAsset 回填）
           cashAccountsTwd: n(27), liabilitiesTwd: n(28),
           netWorth: p.length > 29 && p[29] !== '' ? n(29) : undefined,
+          // 期貨分項（舊版無此欄 → 0）
+          futUnrealizedTwd: n(30), futRealizedPnl: n(31), futNotionalTwd: n(32), futEquityTwd: n(33), futDayPnl: n(34),
           createdAt: Date.now(),
         });
       }
     }
 
-    // 清除現有 → 寫入（meta upsert + 重算已實現）
-    S.setTransactions([]); S.setRealized([]); S.setSnapshots([]);
+    // 分段存在才覆蓋：有交易分段 → 換交易/已實現；有快照分段 → 換快照（只含設定等分段的檔案不動既有資料）
+    const hasTx = txLines.length > 0, hasSnap = snapLines.length > 0;
 
     const sortedTx = [...parsed].sort((a, b) => a.time - b.time);
     const metaUpserts = [];
@@ -265,11 +271,12 @@ App.Csv = (function () {
         sharesMap[sym] = Math.max(0, sh - sell);
         costMap[sym] = Math.max(0, cost - sell * avg);
       }
-      txOut.push({ id: S.uuid(), symbol: sym, type: t.type, shares: t.shares, price: t.price, fee: t.fee, time: t.time });
+      const rec = { id: S.uuid(), symbol: sym, type: t.type, shares: t.shares, price: t.price, fee: t.fee, time: t.time };
+      if (t.acct) rec._acct = t.acct; // 帳戶分段寫入後再依名稱換成 id
+      txOut.push(rec);
     }
-    S.setTransactions(txOut);
-    S.setRealized(rzOut);
-    if (snaps.length) { snaps.sort((a, b) => a.date < b.date ? -1 : 1); S.setSnapshots(snaps); }
+    if (hasTx) { S.setTransactions(txOut); S.setRealized(rzOut); }
+    if (hasSnap) { snaps.sort((a, b) => a.date < b.date ? -1 : 1); S.setSnapshots(snaps); }
 
     // ── 現金帳戶 / 負債（區段存在才覆蓋）──
     if (acctLines.length) {
@@ -301,6 +308,11 @@ App.Csv = (function () {
     // 名稱→id（帳戶/負債匯入後 id 重生，備份內一律以名稱連結；名稱經全形逗號正規化後比對）
     const nmKey = v => String(v == null ? '' : v).replace(/,/g, '，').trim();
     const cashIdByName = {}; for (const a of S.getCashAccounts()) cashIdByName[nmKey(a.name)] = a.id;
+    // 交易的帳戶連結（只連結，不重套現金：餘額已由 ACCOUNTS 還原）
+    if (hasTx && txOut.some(t => t._acct)) {
+      for (const t of txOut) { if (t._acct) { const id = cashIdByName[nmKey(t._acct)]; if (id) t.accountId = id; delete t._acct; } }
+      S.setTransactions(txOut);
+    }
     const liabIdByName = {}; for (const l of S.getLiabilities()) liabIdByName[nmKey(l.name)] = l.id;
 
     // ── 股利記錄（區段存在才覆蓋；不動帳戶餘額——入帳結果已在 ACCOUNTS 餘額內）──

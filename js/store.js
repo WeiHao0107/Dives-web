@@ -45,8 +45,18 @@ App.Store = (function () {
       return raw ? JSON.parse(raw) : fallback;
     } catch (e) { return fallback; }
   }
+  // 寫入失敗（多半是儲存空間已滿）不可靜默：提示使用者匯出備份（每分鐘最多一次）
+  let lastWriteWarn = 0;
   function write(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+    try { localStorage.setItem(key, JSON.stringify(val)); return true; }
+    catch (e) {
+      console.error('localStorage write failed', key, e);
+      if (Date.now() - lastWriteWarn > 60000 && window.App && App.UI && App.UI.toast) {
+        lastWriteWarn = Date.now();
+        App.UI.toast('⚠️ 資料未能儲存（裝置儲存空間不足？）請立即匯出備份', 'error');
+      }
+      return false;
+    }
   }
 
   function uuid() {
@@ -126,8 +136,10 @@ App.Store = (function () {
   function twUniverseFresh() { return localStorage.getItem(K.twUniverseTs) === App.Util.isoDate(); }
 
   // ---- CORS proxy ----
+  // 預設不設代理（失敗時 api.fetchText 直接改走 r.jina.ai）；corsproxy.io 現需金鑰、一律 401 → 視為未設定
   function getProxy() {
-    return localStorage.getItem(K.proxy) || 'https://corsproxy.io/?url=';
+    const v = localStorage.getItem(K.proxy) || '';
+    return v.startsWith('https://corsproxy.io') ? '' : v;
   }
   function setProxy(p) { localStorage.setItem(K.proxy, p || ''); }
 

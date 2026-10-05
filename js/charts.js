@@ -24,6 +24,39 @@ App.Charts = (function () {
     return ticks;
   }
 
+  // 走勢圖用動態刻度：不強制含 0（波動才看得出來），步距取 1/2/2.5/5 × 10ⁿ；
+  // 資料最低點離 0 不遠（< 範圍的一半）時仍從 0 起，免得一點點起伏被誇大成斷崖
+  function niceRange(min, max, count) {
+    count = count || 4;
+    if (!isFinite(min) || !isFinite(max)) { min = 0; max = 1; }
+    if (min > max) { const t = min; min = max; max = t; }
+    if (min === max) { const pad = Math.abs(min) * 0.05 || 1; min -= pad; max += pad; }
+    if (min > 0 && min <= (max - min) * 0.5) min = 0;
+    if (max < 0 && -max <= (max - min) * 0.5) max = 0;
+    const raw = (max - min) / count;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag;
+    const lo = Math.floor(min / step + 1e-9) * step;
+    const hi = Math.ceil(max / step - 1e-9) * step;
+    const ticks = [];
+    for (let v = lo; v <= hi + step * 0.5; v += step) ticks.push(Math.round(v / step) * step);
+    return ticks.map(v => Math.round(v * 1e6) / 1e6);
+  }
+  // 刻度標籤：同一軸統一單位（億/萬/元），小數位數依步距決定 → 不會四捨五入成重複
+  function axisLabels(ticks) {
+    const maxAbs = Math.max(...ticks.map(Math.abs));
+    const unit = maxAbs >= 1e8 ? 1e8 : maxAbs >= 1e4 ? 1e4 : 1, suf = unit === 1e8 ? '億' : unit === 1e4 ? '萬' : '';
+    const step = ticks.length > 1 ? Math.abs(ticks[1] - ticks[0]) / unit : 1;
+    let d = 0; while (d < 4 && Math.abs(Math.round(step * Math.pow(10, d)) - step * Math.pow(10, d)) > 1e-6) d++;
+    return ticks.map(v => {
+      const x = v / unit;
+      if (v === 0) return '0';
+      if (unit === 1) return Math.round(x).toLocaleString('en-US');
+      return (+x.toFixed(d)).toString() + suf;
+    });
+  }
+
   function fmtAxis(v) {
     const av = Math.abs(v);
     if (av >= 1e8) return (v / 1e8).toFixed(1) + '億';
@@ -73,21 +106,21 @@ App.Charts = (function () {
       return { date: p.date, tw, us, cr, ex, total: tw + us + cr };
     });
     const hasCr = rows.some(r => r.cr > 0.5); // 有加密部位才畫第三層
-    let hi = 0;
-    for (const r of rows) { hi = Math.max(hi, r.total, r.tw); for (const v of r.ex) hi = Math.max(hi, v); }
-    const ticks = niceTicks(0, hi, 4);
+    let lo = Infinity, hi = -Infinity;
+    for (const r of rows) { lo = Math.min(lo, r.tw, r.total); hi = Math.max(hi, r.total, r.tw); for (const v of r.ex) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
+    const ticks = niceRange(lo, hi, 4), labels = axisLabels(ticks);
     const yLo = ticks[0], yHi = ticks[ticks.length - 1], ySpan = Math.max(yHi - yLo, 1);
     const n = rows.length;
     const xAt = i => padL + (n > 1 ? (i / (n - 1)) * chartW : chartW / 2);
     const yAt = v => padT + (1 - (v - yLo) / ySpan) * chartH;
-    const y0 = yAt(0);
+    const y0 = yAt(Math.max(yLo, Math.min(0, yHi))); // 面積底：0 在軸內用 0，否則用軸底
 
     let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" class="trend-svg">`;
-    for (const t of ticks) {
+    ticks.forEach((t, ti) => {
       const y = yAt(t);
       svg += `<line x1="${padL}" y1="${y}" x2="${padL + chartW}" y2="${y}" stroke="${t === 0 ? '#d6d3d1' : '#eee'}" stroke-width="1" ${t === 0 ? '' : 'stroke-dasharray="3 3"'}/>`;
-      svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#78716c">${fmtAxis(t)}</text>`;
-    }
+      svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#78716c">${labels[ti]}</text>`;
+    });
     const twPts = rows.map((r, i) => [xAt(i), yAt(r.tw)]);
     const usTopPts = rows.map((r, i) => [xAt(i), yAt(r.tw + r.us)]); // 台股+美股 頂
     const totPts = rows.map((r, i) => [xAt(i), yAt(r.total)]);
@@ -300,22 +333,22 @@ App.Charts = (function () {
     const chartW = W - padL - padR, chartH = H - padT - padB;
 
     const rows = points.map(p => ({ date: p.date, vals: series.map(s => p.values[s.key] || 0) }));
-    let hi = 0;
-    for (const r of rows) for (const v of r.vals) hi = Math.max(hi, v);
-    const ticks = niceTicks(0, hi, 4);
-    const yLo = ticks[0], yHi = ticks[ticks.length - 1], ySpan = Math.max(yHi - yLo, 1);
+    let lo = Infinity, hi = -Infinity;
+    for (const r of rows) for (const v of r.vals) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const ticks = niceRange(lo, hi, 4), labels = axisLabels(ticks);
+    const yLo = ticks[0], yHi = ticks[ticks.length - 1], ySpan = Math.max(yHi - yLo, 1e-9);
     const n = rows.length;
     const xAt = i => padL + (n > 1 ? (i / (n - 1)) * chartW : chartW / 2);
     const yAt = v => padT + (1 - (v - yLo) / ySpan) * chartH;
-    const y0 = yAt(0);
+    const y0 = yAt(Math.max(yLo, Math.min(0, yHi))); // 面積底：0 在軸內用 0，否則用軸底
     const fwd = pts => pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
 
     let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" class="trend-svg">`;
-    for (const t of ticks) {
+    ticks.forEach((t, ti) => {
       const y = yAt(t);
       svg += `<line x1="${padL}" y1="${y}" x2="${padL + chartW}" y2="${y}" stroke="${t === 0 ? '#d6d3d1' : '#eee'}" stroke-width="1" ${t === 0 ? '' : 'stroke-dasharray="3 3"'}/>`;
-      svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#78716c">${fmtAxis(t)}</text>`;
-    }
+      svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#78716c">${labels[ti]}</text>`;
+    });
     series.forEach((s, si) => {
       const pts = rows.map((r, i) => [xAt(i), yAt(r.vals[si])]);
       if (s.fill && n > 0) {
@@ -481,5 +514,5 @@ App.Charts = (function () {
     attachInteractive(container, svgEl, cursor, tip, handle);
   }
 
-  return { trend, bars, reportColumn, lineChart, barChart, dualBars, niceTicks };
+  return { trend, bars, reportColumn, lineChart, barChart, dualBars, niceTicks, niceRange, axisLabels };
 })();

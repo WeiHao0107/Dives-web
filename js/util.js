@@ -211,8 +211,13 @@ App.Util = (function () {
     return (!isNaN(v) && v > 0) ? v : null;
   }
 
+  // HTML 跳脫：使用者輸入（帳戶/群組名、別名）與外部 API 名稱塞進 innerHTML 前一律經過這裡
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   return {
-    Market, normalizeMarketKey, guessMarketBySymbol, marketLabel,
+    esc, Market, normalizeMarketKey, guessMarketBySymbol, marketLabel,
     sanitizeSymbol, canonicalizeTwCode,
     fmtWhole, formatShares, formatPrice, fmtKMBB, fmtBanner, fmtBannerSigned, fmtPct,
     isoDate, taipeiParts, isWeekend, shouldUseMisRealtime, usOpenMinutes, usCountsTowardToday, twCountsTowardToday, parseNum

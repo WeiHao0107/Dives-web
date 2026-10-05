@@ -28,3 +28,11 @@ test('unwrapJina：從 r.jina.ai 回應取出原始 JSON', () => {
   assert.deepEqual(JSON.parse(A.unwrapJina(raw)), { msgArray: [{ c: '2330' }] });
   assert.equal(A.unwrapJina('{"a":1}'), '{"a":1}');
 });
+
+test('keepNewer：今天的即時價不被前一日收盤覆蓋；同日或更新則覆蓋', () => {
+  const today = { price: 2570, date: '2026-10-05' }, prev = { price: 2500, date: '2026-10-02' };
+  assert.equal(A.keepNewer(today, prev), today);
+  assert.equal(A.keepNewer(prev, today), today);
+  assert.equal(A.keepNewer({ price: 1 }, prev), prev);   // 舊版沒有 date → 照舊覆蓋
+  assert.equal(A.keepNewer(today, null), today);
+});
