@@ -5,7 +5,8 @@
  *   台股：FinMind API — TaiwanStockInfo（代碼/名稱/市場）+ TaiwanStockPrice（日收盤+漲跌）。
  *   美股：有自填 Finnhub 金鑰 → /quote 即時報價、/search 搜尋；無金鑰 → FinMind USStockPrice 收盤價(免金鑰)。
  *   匯率：open.er-api.com（免金鑰）。
- *   後備：任一請求失敗時，自動改走可設定的 CORS proxy。
+ *   台股盤中：TWSE MIS（無 CORS）經 r.jina.ai 取得即時成交／最佳買賣價。
+ *   後備：任一請求失敗時，改走可設定的 CORS proxy，再失敗改走 r.jina.ai。
  *
  * 註：為「日收盤」資料，盤中顯示前一交易日收盤，收盤後更新為當日。
  * ======================================================================= */
@@ -34,7 +35,19 @@ App.Api = (function () {
     return U.Market.tse;
   }
 
-  // 直連失敗（CORS / 網路）時自動改走 proxy
+  // r.jina.ai 回應前面會加 Title / URL Source / Markdown Content 標頭 → 取出原始內容
+  function unwrapJina(text) {
+    const i = text.indexOf('Markdown Content:');
+    return i < 0 ? text : text.slice(i + 'Markdown Content:'.length).trim();
+  }
+  // 經 r.jina.ai 取回（免金鑰、支援 CORS；X-No-Cache 避免拿到快取舊價）
+  async function fetchViaJina(url) {
+    const r = await fetch('https://r.jina.ai/' + url, { cache: 'no-store', headers: { 'X-No-Cache': 'true' } });
+    if (!r.ok) throw new Error('jina HTTP ' + r.status);
+    return unwrapJina(await r.text());
+  }
+  // 直連失敗（CORS / 網路）時改走設定的 proxy，再失敗改走 r.jina.ai
+  // （預設 corsproxy.io 現在需要金鑰、會回 401）
   async function fetchText(url) {
     try {
       const r = await fetch(url, { cache: 'no-store' });
@@ -42,10 +55,13 @@ App.Api = (function () {
       return await r.text();
     } catch (e) {
       const proxy = S.getProxy();
-      if (!proxy) throw e;
-      const r2 = await fetch(proxy + encodeURIComponent(url), { cache: 'no-store' });
-      if (!r2.ok) throw new Error('proxy HTTP ' + r2.status);
-      return await r2.text();
+      if (proxy) {
+        try {
+          const r2 = await fetch(proxy + encodeURIComponent(url), { cache: 'no-store' });
+          if (r2.ok) return await r2.text();
+        } catch (e2) { /* 改走 jina */ }
+      }
+      return fetchViaJina(url);
     }
   }
   async function fetchJson(url) { return JSON.parse(await fetchText(url)); }
@@ -228,6 +244,20 @@ App.Api = (function () {
 
   // ---- 台股盤中即時（TWSE MIS，經 proxy；可批次多檔）----
   // 回傳 {code: {price, dailyChange, prevClose}}；盤中時段使用
+  // MIS 單筆 → 報價。z（最近成交）為 "-" 表示當下快照無成交：改用最佳買價／賣價，最後才退開盤、昨收
+  function misQuote(it) {
+    const first = v => U.parseNum(String(v || '').split('_')[0]);
+    const prev = U.parseNum(it.y);
+    let price = U.parseNum(it.z);
+    if (price == null) price = first(it.b);
+    if (price == null) price = first(it.a);
+    if (price == null) price = U.parseNum(it.pz);
+    if (price == null) price = U.parseNum(it.o);
+    if (price == null) price = prev;
+    if (price == null) return null;
+    return { price, dailyChange: prev != null ? price - prev : 0, prevClose: prev };
+  }
+
   async function fetchTwRealtime(metas) {
     const exch = metas.map(m => {
       const prefix = U.normalizeMarketKey(m.market) === U.Market.otc ? 'otc' : 'tse';
@@ -237,17 +267,15 @@ App.Api = (function () {
     for (let i = 0; i < exch.length; i += 50) {
       const chunk = exch.slice(i, i + 50).join('|');
       try {
-        const url = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch=' + encodeURIComponent(chunk);
-        const j = await fetchJson(url);
+        // MIS 沒有 CORS → 直接走 jina（不先直連、不經會 401 的代理，省一輪失敗）
+        const url = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch=' + chunk;
+        const t = await fetchViaJina(url);
+        const j = JSON.parse(t.slice(t.indexOf('{')));
         for (const it of (j.msgArray || [])) {
           const code = (it.c || ((it.key || '').split('_')[1] || '').split('.')[0] || '').trim();
           if (!code) continue;
-          let price = U.parseNum(it.z);                       // 最近成交價
-          if (price == null) price = U.parseNum(it.pz);       // 無成交→揭示價
-          if (price == null) price = U.parseNum(it.o);        // →開盤
-          if (price == null) continue;
-          const prev = U.parseNum(it.y);                      // 昨收
-          out[code] = { price, dailyChange: prev != null ? price - prev : 0, prevClose: prev };
+          const q = misQuote(it);
+          if (q) out[code] = q;
         }
       } catch (e) { console.warn('MIS realtime failed', e); }
     }
@@ -558,6 +586,6 @@ App.Api = (function () {
     return results.slice(0, 30);
   }
 
-  return { fetchText, fetchJson, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchUsHistory, fetchDailySeries, fetchTwDividends, fetchUsDividends, fetchTwRealtime, fetchUsQuote, fetchCryptoQuotes, fetchCryptoHistory, cacheCgId, fetchFx, refreshPrices, searchSymbols, finnhubKey,
+  return { fetchText, fetchJson, unwrapJina, misQuote, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchUsHistory, fetchDailySeries, fetchTwDividends, fetchUsDividends, fetchTwRealtime, fetchUsQuote, fetchCryptoQuotes, fetchCryptoHistory, cacheCgId, fetchFx, refreshPrices, searchSymbols, finnhubKey,
     fetchFuturesDaily, fetchFuturesHistory, refreshFutures, fetchTaifexMargins };
 })();
