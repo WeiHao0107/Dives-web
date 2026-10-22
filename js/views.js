@@ -22,12 +22,12 @@ App.Views = (function () {
   // 隱藏模式下只遮住淨資產／總倉位（Hero 大數字），換成四個米字號；其餘金額不隱藏
   function maskAmounts(root) {
     if (!S.getPrivacy()) return;
-    root.querySelectorAll('.nw-num').forEach(el => { el.textContent = '＊＊＊＊'; });
+    root.querySelectorAll('.nw-num, .alloc-amt').forEach(el => { el.textContent = '＊＊＊＊'; });
   }
 
   /* ===================== 投資（市場分類卡，沿用資產頁風格）===================== */
   // pf.open：各市場展開狀態（可同時展開多個）；預設全收合。排序固定依市值（大→小）
-  const pf = { detailFut: false, open: null, catChart: null };
+  const pf = { detailFut: false, open: null, catChart: null, allocSel: null };
   function resetPortfolioNav() { pf.catChart = null; pf.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
 
   // 通知鈴鐺（取代原更新鈕；資產/投資頁右上）：有未讀 → 紅點
@@ -149,8 +149,8 @@ App.Views = (function () {
       </div>
     </div>`;
 
-    // 市場卡（可同時展開多個；空市場不顯示）
-    let html = '';
+    // 市場卡（可同時展開多個；空市場不顯示）；最上方是持股分布卡
+    let html = positions.length ? allocCardHtml() : '';
     if (!positions.length && !fut) html += `<div class="empty" style="padding:48px 16px">尚無持倉，點右上 ＋ 新增交易</div>`;
     for (const M of MKTS) {
       const list = byMk[M.key];
@@ -232,9 +232,64 @@ App.Views = (function () {
     }));
     root.querySelectorAll('.pf-row').forEach(r =>
       r.addEventListener('click', () => openSymbolActions(r.dataset.sym)));
+    bindAllocCard(root, () => portfolio(root));
     root.querySelectorAll('.pf-fut-row').forEach(r =>
       r.addEventListener('click', () => { pf.detailFut = true; portfolio(root); }));
     maskAmounts(root);
+  }
+
+  // ── 倉位頁持股分布卡（甜甜圈圖＋圖例；個股／市場／群組，可收合）──
+  // 市場只有一個時不給「市場」選項，沒有群組時不給「群組」選項；只剩一種就不顯示切換列
+  const ALLOC_PAL = ['#5B8FD8', '#4FB286', '#E3B341', '#E0675C', '#A07CD0', '#E08E52', '#2BB3B3', '#E86FA8', '#93A23E']; // 前 8 檔＋剛好 9 檔時的第 9 色
+  const ALLOC_OTHER = '#B9B3AC';
+  const ALLOC_MK_COL = { tw: COL.tw, us: COL.us, crypto: COL.crypto };
+  function allocCardHtml() {
+    const ui = S.getAllocUi();
+    const probe = C.allocation('symbol');
+    const opts = [['symbol', '個股']].concat(probe.marketCount > 1 ? [['market', '市場']] : [], probe.groupCount > 0 ? [['group', '群組']] : []);
+    const by = opts.some(o => o[0] === ui.by) ? ui.by : 'symbol';
+    const a = by === 'symbol' ? probe : C.allocation(by);
+    const slices = a.slices.map((sl, i) => Object.assign({}, sl, {
+      color: sl.other ? ALLOC_OTHER : by === 'market' ? ALLOC_MK_COL[sl.key] : ALLOC_PAL[i % ALLOC_PAL.length],
+      text: sl.other ? `其他 ${sl.count} 檔` : esc(sl.label),
+    }));
+    const pctTxt = v => v.toFixed(v >= 10 ? 1 : 1) + '%';
+    const icon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9h-9Z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15Z"/></svg>';
+    let html = `<div class="card alloc-card"><button class="alloc-head" id="alloc-toggle"><span class="alloc-ic">${icon}</span><span class="alloc-t">持股分布</span><span class="alloc-chev">${ui.open ? '收合 ⌃' : '展開 ⌄'}</span></button>`;
+    if (!ui.open) {
+      html += `<div class="alloc-bar">${slices.map(sl => `<span style="width:${sl.pct}%;background:${sl.color}"></span>`).join('')}</div>
+        <div class="alloc-mini">${slices.slice(0, 3).map(sl => `<span><i style="background:${sl.color}"></i>${sl.text} ${Math.round(sl.pct)}%</span>`).join('')}</div></div>`;
+      return html;
+    }
+    if (opts.length > 1) html += `<div class="seg alloc-seg">${opts.map(([v, l]) => `<button class="seg-btn ${v === by ? 'active' : ''}" data-alloc-by="${v}">${l}</button>`).join('')}</div>`;
+    const sel = slices.findIndex(sl => sl.key === pf.allocSel);
+    // 甜甜圈：每塊一個 circle（dasharray 切段，段間留細縫）；選中加粗、其他變淡
+    const size = 148, thick = 24, r = (size - thick) / 2, Cc = 2 * Math.PI * r, cx = size / 2;
+    let off = 0, arcs = '';
+    slices.forEach((sl, i) => {
+      const len = sl.pct / 100 * Cc, gap = slices.length > 1 ? Math.min(1.6, len * 0.3) : 0;
+      arcs += `<circle class="alloc-arc" data-k="${esc(sl.key)}" cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${sl.color}" stroke-width="${sel === i ? thick + 6 : thick}"
+        stroke-dasharray="${Math.max(len - gap, 0.01).toFixed(2)} ${(Cc - len + gap).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cx})" opacity="${sel >= 0 && sel !== i ? 0.28 : 1}"/>`;
+      off += len;
+    });
+    const s0 = sel >= 0 ? slices[sel] : null;
+    const sub = s0 ? (by === 'symbol' && !s0.other ? (s0.name && s0.name !== s0.label ? esc(s0.name) : '') : s0.count + ' 檔') : a.count + ' 檔';
+    const ctr = s0
+      ? `<div class="l">${s0.text}</div><div class="v alloc-amt">${U.fmtKMBB(s0.value)}</div><div class="p" style="color:${s0.color}">${pctTxt(s0.pct)}</div>${sub ? `<div class="l">${sub}</div>` : ''}`
+      : `<div class="l">股票市值</div><div class="v alloc-amt">${U.fmtKMBB(a.total)}</div><div class="l">${sub}</div>`;
+    html += `<div class="alloc-body"><div class="alloc-donut" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${arcs}</svg><div class="alloc-ctr">${ctr}</div></div>
+      <div class="alloc-lg">${slices.map((sl, i) => `<button class="alloc-row ${sel >= 0 ? (sel === i ? 'sel' : 'dim') : ''}" data-k="${esc(sl.key)}"><i style="background:${sl.color}"></i><span class="n">${sl.text}</span><span class="pc" style="color:${sl.other ? 'var(--sub)' : sl.color}">${pctTxt(sl.pct)}</span></button>`).join('')}</div></div></div>`;
+    return html;
+  }
+  function bindAllocCard(root, rerender) {
+    const t = root.querySelector('#alloc-toggle');
+    if (!t) return;
+    t.addEventListener('click', () => { S.setAllocUi({ open: !S.getAllocUi().open }); pf.allocSel = null; rerender(); });
+    root.querySelectorAll('[data-alloc-by]').forEach(b => b.addEventListener('click', () => { S.setAllocUi({ by: b.dataset.allocBy }); pf.allocSel = null; rerender(); }));
+    root.querySelectorAll('.alloc-arc, .alloc-row').forEach(el => el.addEventListener('click', e => {
+      e.stopPropagation();
+      const k = el.dataset.k; pf.allocSel = pf.allocSel === k ? null : k; rerender();
+    }));
   }
 
   // 倉位頁期貨卡：右上契約總值＋今日損益；展開列出各部位（口數、均價、契約值、到期）與風險指標

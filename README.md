@@ -36,7 +36,7 @@
 | 畫面 | 功能重點 |
 |---|---|
 | <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/assets.png" width="180" /> | **資產** — 淨資產與今日漲跌、流動資金／投資／負債分類、每檔佔比環圈。點淨資產進走勢圖。 |
-| <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/portfolio.png" width="180" /> | **投資** — 依市場(台股／美股／加密)分組的持倉,市值、今日與未實現損益、佔比;有期貨時多一張「期貨」卡(契約總值、各部位、風險指標)。 |
+| <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/portfolio.png" width="180" /> | **投資** — 依市場(台股／美股／加密)分組的持倉,市值、今日與未實現損益、佔比;有期貨時多一張「期貨」卡(契約總值、各部位、風險指標);最上方「持股分布」甜甜圈圖可切 個股 / 市場 / 群組,可收合。 |
 | <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/chart.png" width="180" /> | **走勢圖** — 淨資產／各類別走勢、漲幅、投入分解;全部／年初至今／自選日期,點擊釘選數值。 |
 | <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/report.png" width="180" /> | **報表** — 累計損益＋迷你走勢與投入／市值／未實現／已實現;年→月→日鑽取,右上角進統計。 |
 | <img src="https://raw.githubusercontent.com/WeiHao0107/Dives-web/main/screenshots/history.png" width="180" /> | **歷史** — 交易紀錄,買入成本／賣出獲利與比例、搜尋與漏斗篩選、頂部即時統計。 |

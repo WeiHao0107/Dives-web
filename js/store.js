@@ -35,6 +35,7 @@ App.Store = (function () {
     leverage: 'dives_leverage',
     privacy: 'dives_privacy',
     chartRange: 'dives_chart_range',
+    allocUi: 'dives_alloc_ui',
     theme: 'dives_theme',
     futures: 'dives_futures',
   };
@@ -226,6 +227,9 @@ App.Store = (function () {
   function setPrivacy(v) { localStorage.setItem(K.privacy, v ? '1' : '0'); }
   // ---- 走勢圖時間區間（所有走勢圖共用、持久化；本機偏好，不上雲）----
   function getChartRange() { const r = read(K.chartRange, null); return { range: (r && r.range) || 'all', from: (r && r.from) || null, to: (r && r.to) || null }; }
+  // ---- 倉位頁持股分布卡：{open, by}（本機偏好，不上雲）----
+  function getAllocUi() { const r = read(K.allocUi, null) || {}; return { open: r.open !== false, by: ['symbol', 'market', 'group'].includes(r.by) ? r.by : 'symbol' }; }
+  function setAllocUi(patch) { write(K.allocUi, Object.assign(getAllocUi(), patch)); }
   function setChartRange(r) { write(K.chartRange, { range: (r && r.range) || 'all', from: (r && r.from) || null, to: (r && r.to) || null }); }
 
   // ---- 清空所有資料（同步清除快照與資產頁資料）----
@@ -266,7 +270,7 @@ App.Store = (function () {
     getAutoDivUs, setAutoDivUs, getAutoDivAcctUs, setAutoDivAcctUs, getAutoDivUsTax, setAutoDivUsTax,
     getGroups, setGroups, getGroupMap, setGroupMap,
     getPctBasis, setPctBasis, getDayMode, setDayMode, getTheme, setTheme, getLeverage, setLeverage,
-    getPrivacy, setPrivacy, getChartRange, setChartRange,
+    getPrivacy, setPrivacy, getChartRange, setChartRange, getAllocUi, setAllocUi,
     clearAll,
   };
 })();

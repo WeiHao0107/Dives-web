@@ -405,6 +405,37 @@ App.Calc = (function () {
     };
   }
 
+  // 持股分布（倉位頁圓餅）：by = 'symbol' | 'market' | 'group'；分母＝股票市值（TWD），不含期貨
+  // 個股取前 8 檔，其餘合併為「其他」（other:true, count）。回傳 { slices, total, count, marketCount, groupCount }
+  function allocation(by, topN) {
+    topN = topN || 8;
+    const rate = S.getFxRate() || 31.5;
+    const mkOf = p => { const m = U.normalizeMarketKey(p.market); return m === U.Market.us ? 'us' : m === U.Market.crypto ? 'crypto' : 'tw'; };
+    const rows = buildPositions().map(p => ({ p, mk: mkOf(p), mv: mkOf(p) === 'tw' ? p.marketValue : p.marketValue * rate }))
+      .filter(r => r.mv > 0);
+    const total = rows.reduce((x, r) => x + r.mv, 0);
+    const gmap = S.getGroupMap(), groups = S.getGroups();
+    const gname = {}; for (const g of groups) gname[g.id] = g.name;
+    const sum = keyFn => {
+      const acc = {};
+      for (const r of rows) { const [k, label] = keyFn(r); const a = acc[k] || (acc[k] = { key: k, label, value: 0, count: 0 }); a.value += r.mv; a.count++; }
+      return Object.values(acc).sort((x, y) => y.value - x.value);
+    };
+    let slices;
+    if (by === 'market') slices = sum(r => [r.mk, { tw: '台股', us: '美股', crypto: '加密貨幣' }[r.mk]]);
+    else if (by === 'group') slices = sum(r => { const g = gmap[r.p.symbol]; return g && gname[g] ? [g, gname[g]] : ['_none', '獨立持股']; });
+    else {
+      slices = rows.sort((x, y) => y.mv - x.mv).map(r => ({ key: r.p.symbol, label: r.p.symbol, name: r.p.name, market: r.mk, value: r.mv, count: 1 }));
+      if (slices.length > topN + 1) {
+        const rest = slices.slice(topN);
+        slices = slices.slice(0, topN).concat([{ key: '_other', label: '其他', other: true, value: rest.reduce((x, r) => x + r.value, 0), count: rest.length }]);
+      }
+    }
+    for (const sl of slices) sl.pct = total > 0 ? sl.value / total * 100 : 0;
+    const used = new Set(rows.map(r => gmap[r.p.symbol]).filter(g => g && gname[g]));
+    return { slices, total, count: rows.length, marketCount: new Set(rows.map(r => r.mk)).size, groupCount: used.size };
+  }
+
   // 槓桿倍率：(Σ 持股市值 × 自訂倍數 ＋ 期貨契約值) ÷ 淨資產
   // 設定（Store.getLeverage）：mult 未列出的標的 = 1 倍；futures 'none' 不計契約值；liab 'gross' 分母改用不扣負債的總資產
   function leverageSummary() {
@@ -1094,7 +1125,7 @@ App.Calc = (function () {
     computeAvgCostPosition, buildPositions, buildSummary,
     addTransaction, updateTransaction, deleteTransaction, recomputeRealized, realizedByTxId, firstOversell,
     addStockDividend, dividendsTotalTwd, dividendsBetween, dividendsUpTo, addDividend, updateDividend, deleteDividend, sharesHeldBefore,
-    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, txCashDelta, cashLiabTwd,
+    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, txCashDelta, cashLiabTwd,
     netWorthBuckets, findAbsurdFees, repairFees, buildGroupSeries, tradingStats, scopedStats, xirrRate, buildXirrFlows, portfolioXirr,
     recurringDueDates, isoAddDays, priceOnOrBefore, planFee, applyLiabilityPayment, investedBetween, feesSummary,
   };
