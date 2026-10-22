@@ -52,3 +52,13 @@ test('不含期貨；沒有持倉 → 空', () => {
   assert.equal(a.total, 0);
   assert.deepEqual(a.slices, []);
 });
+
+test('allocation 限定群組：只算組內成員，分母＝群組合計', () => {
+  buy('2330', 100, 500, 'tse'); buy('0050', 100, 100, 'tse'); buy('2881', 100, 50, 'tse');
+  S.setGroups([{ id: 'g1', name: '核心' }]);
+  S.setGroupMap({ '2330': 'g1', '0050': 'g1' });
+  const a = C.allocation('symbol', 8, 'g1');
+  assert.equal(a.total, 60000);
+  assert.deepEqual(a.slices.map(s => [s.key, Math.round(s.pct * 10) / 10]), [['2330', 83.3], ['0050', 16.7]]);
+  assert.equal(a.count, 2);
+});

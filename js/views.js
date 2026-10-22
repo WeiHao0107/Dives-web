@@ -150,7 +150,8 @@ App.Views = (function () {
     </div>`;
 
     // 市場卡（可同時展開多個；空市場不顯示）；最上方是持股分布卡
-    let html = positions.length ? allocCardHtml() : '';
+    const aUi = S.getAllocUi();
+    let html = positions.length ? allocCardHtml({ open: aUi.open, by: aUi.by, sel: pf.allocSel }) : '';
     if (!positions.length && !fut) html += `<div class="empty" style="padding:48px 16px">尚無持倉，點右上 ＋ 新增交易</div>`;
     for (const M of MKTS) {
       const list = byMk[M.key];
@@ -232,7 +233,10 @@ App.Views = (function () {
     }));
     root.querySelectorAll('.pf-row').forEach(r =>
       r.addEventListener('click', () => openSymbolActions(r.dataset.sym)));
-    bindAllocCard(root, () => portfolio(root));
+    bindAllocCard(root, {
+      toggle: () => S.setAllocUi({ open: !S.getAllocUi().open }), setBy: v => S.setAllocUi({ by: v }),
+      getSel: () => pf.allocSel, setSel: k => { pf.allocSel = k; }, rerender: () => portfolio(root),
+    });
     root.querySelectorAll('.pf-fut-row').forEach(r =>
       r.addEventListener('click', () => { pf.detailFut = true; portfolio(root); }));
     maskAmounts(root);
@@ -243,26 +247,29 @@ App.Views = (function () {
   const ALLOC_PAL = ['#5B8FD8', '#4FB286', '#E3B341', '#E0675C', '#A07CD0', '#E08E52', '#2BB3B3', '#E86FA8', '#93A23E']; // 前 8 檔＋剛好 9 檔時的第 9 色
   const ALLOC_OTHER = '#B9B3AC';
   const ALLOC_MK_COL = { tw: COL.tw, us: COL.us, crypto: COL.crypto };
-  function allocCardHtml() {
-    const ui = S.getAllocUi();
-    const probe = C.allocation('symbol');
-    const opts = [['symbol', '個股']].concat(probe.marketCount > 1 ? [['market', '市場']] : [], probe.groupCount > 0 ? [['group', '群組']] : []);
+  // cfg：{ open, by, sel, groupId?, title? }；有 groupId → 群組詳情頁的組內分布（只有個股、無切換列）
+  function allocCardHtml(cfg) {
+    const ui = { open: cfg.open, by: cfg.by || 'symbol' };
+    const probe = C.allocation('symbol', 8, cfg.groupId);
+    const opts = cfg.groupId ? [['symbol', '個股']]
+      : [['symbol', '個股']].concat(probe.marketCount > 1 ? [['market', '市場']] : [], probe.groupCount > 0 ? [['group', '群組']] : []);
     const by = opts.some(o => o[0] === ui.by) ? ui.by : 'symbol';
     const a = by === 'symbol' ? probe : C.allocation(by);
+    const totalLbl = cfg.groupId ? '組內市值' : '股票市值';
     const slices = a.slices.map((sl, i) => Object.assign({}, sl, {
       color: sl.other ? ALLOC_OTHER : by === 'market' ? ALLOC_MK_COL[sl.key] : ALLOC_PAL[i % ALLOC_PAL.length],
       text: sl.other ? `其他 ${sl.count} 檔` : esc(sl.label),
     }));
     const pctTxt = v => v.toFixed(v >= 10 ? 1 : 1) + '%';
     const icon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9h-9Z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15Z"/></svg>';
-    let html = `<div class="card alloc-card"><button class="alloc-head" id="alloc-toggle"><span class="alloc-ic">${icon}</span><span class="alloc-t">持股分布</span><span class="alloc-chev">${ui.open ? '收合 ⌃' : '展開 ⌄'}</span></button>`;
+    let html = `<div class="card alloc-card"><button class="alloc-head" id="alloc-toggle"><span class="alloc-ic">${icon}</span><span class="alloc-t">${cfg.title || '持股分布'}</span><span class="alloc-chev">${ui.open ? '收合 ⌃' : '展開 ⌄'}</span></button>`;
     if (!ui.open) {
       html += `<div class="alloc-bar">${slices.map(sl => `<span style="width:${sl.pct}%;background:${sl.color}"></span>`).join('')}</div>
         <div class="alloc-mini">${slices.slice(0, 3).map(sl => `<span><i style="background:${sl.color}"></i>${sl.text} ${Math.round(sl.pct)}%</span>`).join('')}</div></div>`;
       return html;
     }
     if (opts.length > 1) html += `<div class="seg alloc-seg">${opts.map(([v, l]) => `<button class="seg-btn ${v === by ? 'active' : ''}" data-alloc-by="${v}">${l}</button>`).join('')}</div>`;
-    const sel = slices.findIndex(sl => sl.key === pf.allocSel);
+    const sel = slices.findIndex(sl => sl.key === cfg.sel);
     // 甜甜圈：每塊一個 circle（dasharray 切段，段間留細縫）；選中加粗、其他變淡
     const size = 156, thick = 30, r = (size - thick) / 2, Cc = 2 * Math.PI * r, cx = size / 2;
     let off = 0, arcs = '', tags = '';
@@ -286,19 +293,20 @@ App.Views = (function () {
     const sub = s0 ? (by === 'symbol' && !s0.other ? (s0.name && s0.name !== s0.label ? esc(s0.name) : '') : s0.count + ' 檔') : a.count + ' 檔';
     const ctr = s0
       ? `<div class="l">${s0.text}</div><div class="v alloc-amt">${U.fmtKMBB(s0.value)}</div><div class="p" style="color:${s0.color}">${pctTxt(s0.pct)}</div>${sub ? `<div class="l">${sub}</div>` : ''}`
-      : `<div class="l">股票市值</div><div class="v alloc-amt">${U.fmtKMBB(a.total)}</div><div class="l">${sub}</div>`;
+      : `<div class="l">${totalLbl}</div><div class="v alloc-amt">${U.fmtKMBB(a.total)}</div><div class="l">${sub}</div>`;
     html += `<div class="alloc-body"><div class="alloc-donut" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${arcs}${tags}</svg><div class="alloc-ctr">${ctr}</div></div>
       <div class="alloc-lg">${slices.map((sl, i) => `<button class="alloc-row ${sel >= 0 ? (sel === i ? 'sel' : 'dim') : ''}" data-k="${esc(sl.key)}"><i style="background:${sl.color}"></i><span class="n">${sl.text}</span><span class="pc" style="color:${sl.other ? 'var(--sub)' : sl.color}">${pctTxt(sl.pct)}</span></button>`).join('')}</div></div></div>`;
     return html;
   }
-  function bindAllocCard(root, rerender) {
+  // h：{ toggle(), setBy(v), getSel(), setSel(k), rerender() }
+  function bindAllocCard(root, h) {
     const t = root.querySelector('#alloc-toggle');
     if (!t) return;
-    t.addEventListener('click', () => { S.setAllocUi({ open: !S.getAllocUi().open }); pf.allocSel = null; rerender(); });
-    root.querySelectorAll('[data-alloc-by]').forEach(b => b.addEventListener('click', () => { S.setAllocUi({ by: b.dataset.allocBy }); pf.allocSel = null; rerender(); }));
+    t.addEventListener('click', () => { h.toggle(); h.setSel(null); h.rerender(); });
+    root.querySelectorAll('[data-alloc-by]').forEach(b => b.addEventListener('click', () => { h.setBy(b.dataset.allocBy); h.setSel(null); h.rerender(); }));
     root.querySelectorAll('.alloc-arc, .alloc-row').forEach(el => el.addEventListener('click', e => {
       e.stopPropagation();
-      const k = el.dataset.k; pf.allocSel = pf.allocSel === k ? null : k; rerender();
+      const k = el.dataset.k; h.setSel(h.getSel() === k ? null : k); h.rerender();
     }));
   }
 
@@ -943,7 +951,7 @@ App.Views = (function () {
   /* ===================== 資產（淨資產）===================== */
   // 手風琴：一次只展開一類（cash|invest|liab）；detailGroup = 群組詳情頁
   //   nw/gt 僅保留各自的 metric（走勢/漲幅/投入）與 year（漲幅選年）；時間區間改用共用的 chartRange
-  const as = { openCat: 'invest', detailGroup: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
+  const as = { openCat: 'invest', detailGroup: null, groupAllocSel: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
     groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null };
   // 所有走勢圖共用的「選擇日期」區間（持久化：關閉程式後重開仍保留同一起始/結束日）
   const chartRange = S.getChartRange();
@@ -1439,7 +1447,9 @@ App.Views = (function () {
     </div>
     <div class="gd-total">合計 NT$ ${U.fmtWhole(gTotal)} <button class="gd-sort" aria-label="排序">${as.detailAsc ? '▲' : '▼'}</button></div>`;
 
-    let listHtml = '';
+    // 組內分布圓餅（2 檔以上才顯示；分母＝群組合計，不受「投資佔比基準」影響）
+    let listHtml = members.filter(p => mvTwdOf(p, rate) > 0).length >= 2
+      ? allocCardHtml({ open: S.getAllocUi().groupOpen, sel: as.groupAllocSel, groupId: gid, title: '組內分布' }) : '';
     if (!members.length) {
       listHtml += `<div class="empty" style="padding:40px 16px">此群組尚無持倉<br>點右上 ＋ 買入並加入，或從投資清單指定群組</div>`;
     }
@@ -1462,7 +1472,11 @@ App.Views = (function () {
 
     root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${listHtml}</div></div>`;
 
-    root.querySelector('.gd-back').addEventListener('click', () => { as.detailGroup = null; assets(root); });
+    root.querySelector('.gd-back').addEventListener('click', () => { as.detailGroup = null; as.groupAllocSel = null; assets(root); });
+    bindAllocCard(root, {
+      toggle: () => S.setAllocUi({ groupOpen: !S.getAllocUi().groupOpen }), setBy: () => {},
+      getSel: () => as.groupAllocSel, setSel: k => { as.groupAllocSel = k; }, rerender: () => groupDetail(root, gid),
+    });
     root.querySelector('.gd-sort').addEventListener('click', () => { as.detailAsc = !as.detailAsc; assets(root); });
     root.querySelector('.gd-trend').addEventListener('click', () => { as.groupTrend = gid; as.gtCache = null; assets(root); });
     root.querySelector('.gd-menu').addEventListener('click', () => openGroupMenu(gid, () => assets(root)));

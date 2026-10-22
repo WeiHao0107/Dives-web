@@ -407,14 +407,16 @@ App.Calc = (function () {
 
   // 持股分布（倉位頁圓餅）：by = 'symbol' | 'market' | 'group'；分母＝股票市值（TWD），不含期貨
   // 個股取前 8 檔，其餘合併為「其他」（other:true, count）。回傳 { slices, total, count, marketCount, groupCount }
-  function allocation(by, topN) {
+  // groupId：只算該群組成員（群組詳情頁的組內分布，分母＝群組合計）
+  function allocation(by, topN, groupId) {
     topN = topN || 8;
     const rate = S.getFxRate() || 31.5;
     const mkOf = p => { const m = U.normalizeMarketKey(p.market); return m === U.Market.us ? 'us' : m === U.Market.crypto ? 'crypto' : 'tw'; };
     const rows = buildPositions().map(p => ({ p, mk: mkOf(p), mv: mkOf(p) === 'tw' ? p.marketValue : p.marketValue * rate }))
       .filter(r => r.mv > 0);
-    const total = rows.reduce((x, r) => x + r.mv, 0);
     const gmap = S.getGroupMap(), groups = S.getGroups();
+    if (groupId) for (let i = rows.length - 1; i >= 0; i--) if (gmap[rows[i].p.symbol] !== groupId) rows.splice(i, 1);
+    const total = rows.reduce((x, r) => x + r.mv, 0);
     const gname = {}; for (const g of groups) gname[g.id] = g.name;
     const sum = keyFn => {
       const acc = {};
