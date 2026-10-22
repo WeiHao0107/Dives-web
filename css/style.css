@@ -636,6 +636,7 @@ input, select { font-family: inherit; font-size: 15px; }
 .alloc-donut { position: relative; flex: none; }
 .alloc-donut svg { display: block; overflow: visible; }
 .alloc-arc { cursor: pointer; transition: opacity .15s; }
+.alloc-tag { font-size: 9.5px; font-weight: 700; fill: #fff; pointer-events: none; paint-order: stroke; stroke: rgba(0,0,0,.28); stroke-width: 2px; stroke-linejoin: round; }
 .alloc-ctr { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; padding: 0 30px; }
 .alloc-ctr .l { font-size: 10.5px; color: var(--sub); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .alloc-ctr .v { font-size: 15px; font-weight: 800; margin: 1px 0; }

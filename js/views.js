@@ -264,12 +264,22 @@ App.Views = (function () {
     if (opts.length > 1) html += `<div class="seg alloc-seg">${opts.map(([v, l]) => `<button class="seg-btn ${v === by ? 'active' : ''}" data-alloc-by="${v}">${l}</button>`).join('')}</div>`;
     const sel = slices.findIndex(sl => sl.key === pf.allocSel);
     // 甜甜圈：每塊一個 circle（dasharray 切段，段間留細縫）；選中加粗、其他變淡
-    const size = 148, thick = 24, r = (size - thick) / 2, Cc = 2 * Math.PI * r, cx = size / 2;
-    let off = 0, arcs = '';
+    const size = 156, thick = 30, r = (size - thick) / 2, Cc = 2 * Math.PI * r, cx = size / 2;
+    let off = 0, arcs = '', tags = '';
+    // 扇形上的標籤：弧長放得下文字才畫（英數約 5.6px／字、中文約 9.5px／字，字級 9.5）
+    const textW = t => [...t].reduce((w, ch) => w + (/[\x00-\x7f]/.test(ch) ? 5.6 : 9.5), 0);
     slices.forEach((sl, i) => {
       const len = sl.pct / 100 * Cc, gap = slices.length > 1 ? Math.min(1.6, len * 0.3) : 0;
       arcs += `<circle class="alloc-arc" data-k="${esc(sl.key)}" cx="${cx}" cy="${cx}" r="${r}" fill="none" stroke="${sl.color}" stroke-width="${sel === i ? thick + 6 : thick}"
         stroke-dasharray="${Math.max(len - gap, 0.01).toFixed(2)} ${(Cc - len + gap).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cx})" opacity="${sel >= 0 && sel !== i ? 0.28 : 1}"/>`;
+      const tag = sl.other ? '其他' : sl.label;
+      if (len - gap >= textW(tag) + 6) {
+        // 沿圓弧切線方向排字（下半圈轉 180° 保持正向可讀），只需弧長夠、不會超出圓環寬度
+        const ang = (off + len / 2) / Cc * 2 * Math.PI - Math.PI / 2;
+        let rot = ang * 180 / Math.PI + 90; if (rot > 90 && rot < 270) rot -= 180;
+        const tx = (cx + r * Math.cos(ang)).toFixed(1), ty = (cx + r * Math.sin(ang)).toFixed(1);
+        tags += `<text x="${tx}" y="${ty}" transform="rotate(${rot.toFixed(1)} ${tx} ${ty})" text-anchor="middle" dominant-baseline="central" class="alloc-tag" opacity="${sel >= 0 && sel !== i ? 0.35 : 1}">${esc(tag)}</text>`;
+      }
       off += len;
     });
     const s0 = sel >= 0 ? slices[sel] : null;
@@ -277,7 +287,7 @@ App.Views = (function () {
     const ctr = s0
       ? `<div class="l">${s0.text}</div><div class="v alloc-amt">${U.fmtKMBB(s0.value)}</div><div class="p" style="color:${s0.color}">${pctTxt(s0.pct)}</div>${sub ? `<div class="l">${sub}</div>` : ''}`
       : `<div class="l">股票市值</div><div class="v alloc-amt">${U.fmtKMBB(a.total)}</div><div class="l">${sub}</div>`;
-    html += `<div class="alloc-body"><div class="alloc-donut" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${arcs}</svg><div class="alloc-ctr">${ctr}</div></div>
+    html += `<div class="alloc-body"><div class="alloc-donut" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${arcs}${tags}</svg><div class="alloc-ctr">${ctr}</div></div>
       <div class="alloc-lg">${slices.map((sl, i) => `<button class="alloc-row ${sel >= 0 ? (sel === i ? 'sel' : 'dim') : ''}" data-k="${esc(sl.key)}"><i style="background:${sl.color}"></i><span class="n">${sl.text}</span><span class="pc" style="color:${sl.other ? 'var(--sub)' : sl.color}">${pctTxt(sl.pct)}</span></button>`).join('')}</div></div></div>`;
     return html;
   }
