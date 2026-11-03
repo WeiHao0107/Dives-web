@@ -1,0 +1,14 @@
+# 元大元件（授權屬元大，不進公開 repo）
+sdk/
+# 查詢結果含個人持股
+out/
+# 憑證與密碼
+*.pfx
+*.p12
+.env
+# 元大元件寫出的 Log
+Logs/
+Log/
+*.log
+.venv/
+__pycache__/
