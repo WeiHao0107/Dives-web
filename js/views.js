@@ -1198,7 +1198,8 @@ App.Views = (function () {
   //   nw/gt 僅保留各自的 metric（走勢/漲幅/投入）與 year（漲幅選年）；時間區間改用共用的 chartRange
   const as = { openCat: null, detailGroup: null, groupAllocSel: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
     groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null,
-    detailSym: null, stk: { mode: 'value', key: null, data: null, loading: null, error: null } };   // 個股頁：mode＝value(市值與成本)｜price(股價與均價)
+    detailSym: null, stk: { mode: 'value', key: null, data: null, loading: null, error: null, range: { range: 'all', from: null, to: null } } };
+  // 個股頁：mode＝value(市值與成本)｜price(股價與均價)；range＝走勢範圍（個股頁自己的，預設全部，進到個股頁時重設）
   // 所有走勢圖共用的「選擇日期」區間（持久化：關閉程式後重開仍保留同一起始/結束日）
   const chartRange = S.getChartRange();
 
@@ -1533,7 +1534,7 @@ App.Views = (function () {
     root.querySelectorAll('.as-grow').forEach(g => g.addEventListener('click', () => {
       as.detailGroup = g.dataset.gid; assets(root);
     }));
-    root.querySelectorAll('.as-row.member').forEach(r => r.addEventListener('click', () => { as.detailSym = r.dataset.sym; assets(root); }));
+    root.querySelectorAll('.as-row.member').forEach(r => r.addEventListener('click', () => openStock(root, r.dataset.sym)));
     maskAmounts(root);
     if (athNow) athBurstOnce();
   }
@@ -1821,10 +1822,38 @@ App.Views = (function () {
     root.querySelector('.gd-menu').addEventListener('click', () => openGroupMenu(gid, () => assets(root)));
     root.querySelector('.gd-plus').addEventListener('click', () =>
       openTxForm(null, null, { onAdded: sym => { const m = S.getGroupMap(); m[sym] = gid; S.setGroupMap(m); if (App.Sync) App.Sync.markDirty(); } }));
-    root.querySelectorAll('.gd-row').forEach(r => r.addEventListener('click', () => { as.detailSym = r.dataset.sym; assets(root); }));
+    root.querySelectorAll('.gd-row').forEach(r => r.addEventListener('click', () => openStock(root, r.dataset.sym)));
   }
 
   /* ---- 個股頁：損益、走勢對成本、交易紀錄 ---- */
+  function openStock(root, sym) { as.detailSym = sym; as.stk.range = { range: 'all', from: null, to: null }; assets(root); }
+  // 走勢範圍：點圖例最右邊的日曆圖示才跳出來選（全部／年初至今／選擇日期）
+  function openStockRange(sym, firstDate, onApply) {
+    const cur = as.stk.range, today = U.isoDate();
+    let pick = cur.range;
+    const RG = [['all', '全部'], ['ytd', '年初至今'], ['custom', '選擇日期']];
+    const body = `<div class="seg seg-wide" id="sr-range" style="display:flex">${RG.map(([k, l]) => `<button class="seg-btn ${pick === k ? 'active' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="range-dates" id="sr-dates" style="${pick === 'custom' ? '' : 'display:none'}">
+        <input type="date" class="input" id="sr-from" value="${cur.from || firstDate}" max="${today}"><span>至</span><input type="date" class="input" id="sr-to" value="${cur.to || today}">
+      </div>`;
+    const ov = UI.openSheet('走勢範圍', body, '<button class="btn btn-ghost" id="sr-cancel">取消</button><button class="btn btn-primary" id="sr-ok">套用</button>');
+    ov.querySelectorAll('#sr-range .seg-btn').forEach(b => b.addEventListener('click', () => {
+      pick = b.dataset.v;
+      ov.querySelectorAll('#sr-range .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+      ov.querySelector('#sr-dates').style.display = pick === 'custom' ? '' : 'none';
+    }));
+    ov.querySelector('#sr-cancel').addEventListener('click', UI.closeSheet);
+    ov.querySelector('#sr-ok').addEventListener('click', () => {
+      let a = null, b = null;
+      if (pick === 'custom') {
+        a = ov.querySelector('#sr-from').value || firstDate; b = ov.querySelector('#sr-to').value || today;
+        if (a > b) { const x = a; a = b; b = x; }
+        if (b >= today) b = null;   // 到今天＝跟著今天走
+      }
+      as.stk.range = { range: pick, from: a, to: b };
+      UI.closeSheet(); onApply();
+    });
+  }
   // 抓這一檔的歷史價並算出每日走勢；抓失敗就丟錯（不拿成本估算當成真的走勢）
   async function fetchSymbolSeries(sym) {
     const txs = S.getTransactions().filter(t => t.symbol === sym);
@@ -1869,6 +1898,8 @@ App.Views = (function () {
     const bigCls = mv >= 1e9 ? ' xs' : mv >= 1e8 ? ' sm' : '';
     const name = meta.alias || (meta.name && meta.name !== sym ? meta.name : '');
     const fact = (k, val) => `<div><span>${k}</span><b>${val}</b></div>`;
+    const rg = as.stk.range, md = iso => (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10));
+    const rangeText = rg.range === 'ytd' ? '年初至今' : rg.range === 'custom' ? md(rg.from) + '–' + (rg.to ? md(rg.to) : '今天') : '';
     const hasReal = Math.abs(gp.realizedTwd) >= 0.5;
 
     const topHtml = `<div class="gd-head">
@@ -1906,8 +1937,8 @@ App.Views = (function () {
       ${hasReal ? `<div class="gd-sub"><span>已實現 <b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></span><span>含已實現合計 <b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span></div>` : ''}
       <div class="card stk-chart">
         <div class="seg seg-wide" id="stk-mode"><button class="seg-btn ${as.stk.mode === 'value' ? 'active' : ''}" data-v="value">市值與成本</button><button class="seg-btn ${as.stk.mode === 'price' ? 'active' : ''}" data-v="price">股價與均價</button></div>
-        <div class="stk-range">${rangeControlHtml(chartRange, 'stk')}</div>
-        <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>Buy</span><span><i class="d2"></i>Sell</span></div>
+        <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>Buy</span><span><i class="d2"></i>Sell</span>
+          <button class="stk-cal${as.stk.range.range !== 'all' ? ' on' : ''}" id="stk-cal" aria-label="選擇走勢範圍，目前：${rangeText || '全部'}">${rangeText ? `<em>${rangeText}</em>` : ''}<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14.5" rx="2.2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg></button></div>
         <div class="stk-host" id="stk-host"></div>
       </div>
       <div class="gd-lh"><span>交易紀錄 ${txs.length} 筆</span></div>
@@ -1930,7 +1961,7 @@ App.Views = (function () {
     const key = sym + '|' + txs.length + '|' + txs.reduce((s, t) => s + t.shares * t.price, 0).toFixed(2) + '|' + U.isoDate();
     const st = as.stk;
     const draw = data => {
-      const pts = applyRange(data.points, chartRange), n = pts.length;   // 只畫所選範圍
+      const pts = applyRange(data.points, st.range), n = pts.length;   // 只畫所選範圍
       const pos = {}; pts.forEach((q, i) => { pos[q.date] = i; });
       const value = st.mode === 'value';
       const series = pts.map(q => value ? { date: q.date, a: q.mv, b: q.shares > 0 ? q.cost : null } : { date: q.date, a: q.price, b: q.avgCost });
@@ -1945,9 +1976,7 @@ App.Views = (function () {
         extremeFmt: x => value ? U.fmtKMBB(x) : cur + U.formatPrice(x),   // 主線的最高／最低點標示
       });
     };
-    // 範圍切換 → 整頁重繪；改日期 → 只重畫圖（不重建輸入框，原生日期選擇器才不會被關掉）
-    bindRangeControl(root, chartRange, 'stk', [U.isoDate(new Date(txs[txs.length - 1].time)), U.isoDate()],
-      () => stockDetail(root, sym), () => { if (st.key === key && st.data) draw(st.data); });
+    root.querySelector('#stk-cal').addEventListener('click', () => openStockRange(sym, U.isoDate(new Date(txs[txs.length - 1].time)), () => stockDetail(root, sym)));
     if (st.key === key && st.data) draw(st.data);
     else if (st.error === key) {
       host.innerHTML = '<div class="chart-empty">走勢載入失敗<br><button class="cal-retry" id="stk-retry">點此重試</button></div>';
