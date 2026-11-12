@@ -606,6 +606,9 @@ input, select { font-family: inherit; font-size: 15px; }
 .stk-lg { display: flex; align-items: center; gap: 4px 14px; padding: 0 0 4px 4px; font-size: 11.5px; color: var(--sub); }
 .stk-cal { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 6px; border-radius: 9px; color: var(--sub); font: inherit; -webkit-tap-highlight-color: transparent; }
 .stk-cal:active { background: var(--soft); }
+/* 其他走勢圖：定位點不佔高度，圖示疊在圖表圖例列的最右邊 */
+.rg-anchor { position: relative; height: 0; z-index: 2; }
+.rg-cal { position: absolute; right: 0; top: 4px; }
 .stk-cal.on { color: var(--accent-ink); background: var(--accent-soft); }
 .stk-cal em { font-style: normal; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
 .stk-lg span { display: inline-flex; align-items: center; gap: 5px; }

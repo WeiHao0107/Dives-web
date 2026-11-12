@@ -1200,8 +1200,8 @@ App.Views = (function () {
     groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null,
     detailSym: null, stk: { mode: 'value', key: null, data: null, loading: null, error: null, range: { range: 'all', from: null, to: null } } };
   // 個股頁：mode＝value(市值與成本)｜price(股價與均價)；range＝走勢範圍（個股頁自己的，預設全部，進到個股頁時重設）
-  // 所有走勢圖共用的「選擇日期」區間（持久化：關閉程式後重開仍保留同一起始/結束日）
-  const chartRange = S.getChartRange();
+  // 淨資產／投資／群組／期貨走勢圖共用的範圍：預設全部，只在這次使用期間有效（不保存）
+  const chartRange = { range: 'all', from: null, to: null };
 
   // 時間區間過濾（供淨資產圖 / 群組圖）：spec = {range:'all'|'ytd'|'custom', from, to}；items 皆有 .date
   function applyRange(items, spec) {
@@ -1234,11 +1234,38 @@ App.Views = (function () {
     for (let i = 0; i < buckets.length; i += step) show.add(i);
     return { xLabels: [...show].sort((a, b) => a - b).map(i => ({ idx: i, label: fmt(i) })), labelFor: i => show.has(i) ? fmt(i) : '' };
   }
-  function rangeControlHtml(spec, id) {
+  // 走勢範圍不再常駐一排選項：改成圖例列最右邊的日曆圖示（bindRangeControl 會插到圖表上方），點了才跳出對話框
+  function rangeControlHtml() { return ''; }
+  const CAL_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14.5" rx="2.2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>';
+  function rangeLabel(rg) {
+    const md = iso => (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10));
+    return rg.range === 'ytd' ? '年初至今' : rg.range === 'custom' && rg.from ? md(rg.from) + '–' + (rg.to ? md(rg.to) : '今天') : '';
+  }
+  // 範圍對話框：全部／年初至今／選擇日期（選了才出現起訖日期；結束日預設今天）。按「套用」才生效
+  function openRangeDialog(cur, firstDate, onApply) {
+    const today = U.isoDate();
+    let pick = cur.range;
     const RG = [['all', '全部'], ['ytd', '年初至今'], ['custom', '選擇日期']];
-    let h = `<div class="seg seg-wide" id="${id}-range">${RG.map(([v, l]) => `<button class="seg-btn ${spec.range === v ? 'active' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
-    if (spec.range === 'custom') h += `<div class="range-dates"><input type="date" class="input" id="${id}-from" value="${spec.from || ''}" max="${U.isoDate()}"><span>至</span><input type="date" class="input" id="${id}-to" value="${spec.to || U.isoDate()}"></div>`;
-    return h;
+    const body = `<div class="seg seg-wide" id="sr-range" style="display:flex">${RG.map(([k, l]) => `<button class="seg-btn ${pick === k ? 'active' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="range-dates" id="sr-dates" style="${pick === 'custom' ? '' : 'display:none'}">
+        <input type="date" class="input" id="sr-from" value="${cur.from || firstDate || today}" max="${today}"><span>至</span><input type="date" class="input" id="sr-to" value="${cur.to || today}">
+      </div>`;
+    const ov = UI.openSheet('走勢範圍', body, '<button class="btn btn-ghost" id="sr-cancel">取消</button><button class="btn btn-primary" id="sr-ok">套用</button>');
+    ov.querySelectorAll('#sr-range .seg-btn').forEach(b => b.addEventListener('click', () => {
+      pick = b.dataset.v;
+      ov.querySelectorAll('#sr-range .seg-btn').forEach(x => x.classList.toggle('active', x === b));
+      ov.querySelector('#sr-dates').style.display = pick === 'custom' ? '' : 'none';
+    }));
+    ov.querySelector('#sr-cancel').addEventListener('click', UI.closeSheet);
+    ov.querySelector('#sr-ok').addEventListener('click', () => {
+      let a = null, b = null;
+      if (pick === 'custom') {
+        a = ov.querySelector('#sr-from').value || firstDate || today; b = ov.querySelector('#sr-to').value || today;
+        if (a > b) { const x = a; a = b; b = x; }
+        if (b >= today) b = null;   // 到今天＝跟著今天走
+      }
+      UI.closeSheet(); onApply({ range: pick, from: a, to: b });
+    });
   }
   // 年份選擇（供漲幅圖：選年份、月刻度）
   function yearControlHtml(spec, id, years) {
@@ -1248,27 +1275,15 @@ App.Views = (function () {
   function bindYearControl(root, spec, id, rerender) {
     root.querySelectorAll(`#${id}-year .chip`).forEach(b => b.addEventListener('click', () => { spec.year = +b.dataset.v; rerender(); }));
   }
-  // spec 為共用的 chartRange；範圍與起始日會保存、所有走勢圖共用同一區間。結束日預設今天（spec.to = null），不保存
-  function bindRangeControl(root, spec, id, dates, rerender, onDate) {
-    root.querySelectorAll(`#${id}-range .seg-btn`).forEach(b => b.addEventListener('click', () => {
-      spec.range = b.dataset.v;
-      if (spec.range === 'custom' && dates.length && !spec.from) spec.from = dates[0];   // 結束日不預填：null＝到今天
-      S.setChartRange(spec);
-      rerender();
-    }));
-    // 選日期即時套用，但只「局部重繪圖表」（onDate），不重建輸入框 → 原生日期選擇器不會被關掉；
-    // 未提供 onDate 時退回整頁重繪。
-    const f = root.querySelector(`#${id}-from`), t = root.querySelector(`#${id}-to`);
-    const apply = () => {
-      const today = U.isoDate();
-      let a = f.value || spec.from, b = t.value || today;
-      if (a && b && a > b) { const tmp = a; a = b; b = tmp; f.value = a; t.value = b; } // 起訖顛倒自動對調
-      spec.from = a; spec.to = b && b < today ? b : null;   // 選今天（或之後）＝跟著今天走
-      S.setChartRange(spec);
-      (onDate || rerender)();
-    };
-    if (f) f.addEventListener('change', apply);
-    if (t) t.addEventListener('change', apply);
+  // spec 為各走勢圖頁共用的 chartRange（預設全部；只在這次使用期間有效，不保存）。
+  //   在圖表（#<id>-chart）正上方插入一個不佔高度的定位點，把日曆圖示疊在圖例列的最右邊
+  function bindRangeControl(root, spec, id, dates, rerender) {
+    const host = root.querySelector(`#${id}-chart`);
+    if (!host) return;
+    const txt = rangeLabel(spec);
+    host.insertAdjacentHTML('beforebegin', `<div class="rg-anchor"><button class="stk-cal rg-cal${spec.range !== 'all' ? ' on' : ''}" id="${id}-cal" aria-label="選擇走勢範圍，目前：${txt || '全部'}">${CAL_SVG}</button></div>`);
+    root.querySelector(`#${id}-cal`).addEventListener('click', () =>
+      openRangeDialog(spec, dates && dates.length ? dates[0] : null, r => { Object.assign(spec, r); rerender(); }));
   }
   // 點「資產」tab 時回到資產首頁（退出群組/走勢/淨資產詳情）
   function resetAssetsNav() { as.detailSym = null; as.detailGroup = null; as.groupTrend = null; as.catChart = null; as.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
@@ -1827,33 +1842,6 @@ App.Views = (function () {
 
   /* ---- 個股頁：損益、走勢對成本、交易紀錄 ---- */
   function openStock(root, sym) { as.detailSym = sym; as.stk.range = { range: 'all', from: null, to: null }; assets(root); }
-  // 走勢範圍：點圖例最右邊的日曆圖示才跳出來選（全部／年初至今／選擇日期）
-  function openStockRange(sym, firstDate, onApply) {
-    const cur = as.stk.range, today = U.isoDate();
-    let pick = cur.range;
-    const RG = [['all', '全部'], ['ytd', '年初至今'], ['custom', '選擇日期']];
-    const body = `<div class="seg seg-wide" id="sr-range" style="display:flex">${RG.map(([k, l]) => `<button class="seg-btn ${pick === k ? 'active' : ''}" data-v="${k}">${l}</button>`).join('')}</div>
-      <div class="range-dates" id="sr-dates" style="${pick === 'custom' ? '' : 'display:none'}">
-        <input type="date" class="input" id="sr-from" value="${cur.from || firstDate}" max="${today}"><span>至</span><input type="date" class="input" id="sr-to" value="${cur.to || today}">
-      </div>`;
-    const ov = UI.openSheet('走勢範圍', body, '<button class="btn btn-ghost" id="sr-cancel">取消</button><button class="btn btn-primary" id="sr-ok">套用</button>');
-    ov.querySelectorAll('#sr-range .seg-btn').forEach(b => b.addEventListener('click', () => {
-      pick = b.dataset.v;
-      ov.querySelectorAll('#sr-range .seg-btn').forEach(x => x.classList.toggle('active', x === b));
-      ov.querySelector('#sr-dates').style.display = pick === 'custom' ? '' : 'none';
-    }));
-    ov.querySelector('#sr-cancel').addEventListener('click', UI.closeSheet);
-    ov.querySelector('#sr-ok').addEventListener('click', () => {
-      let a = null, b = null;
-      if (pick === 'custom') {
-        a = ov.querySelector('#sr-from').value || firstDate; b = ov.querySelector('#sr-to').value || today;
-        if (a > b) { const x = a; a = b; b = x; }
-        if (b >= today) b = null;   // 到今天＝跟著今天走
-      }
-      as.stk.range = { range: pick, from: a, to: b };
-      UI.closeSheet(); onApply();
-    });
-  }
   // 抓這一檔的歷史價並算出每日走勢；抓失敗就丟錯（不拿成本估算當成真的走勢）
   async function fetchSymbolSeries(sym) {
     const txs = S.getTransactions().filter(t => t.symbol === sym);
@@ -1898,8 +1886,7 @@ App.Views = (function () {
     const bigCls = mv >= 1e9 ? ' xs' : mv >= 1e8 ? ' sm' : '';
     const name = meta.alias || (meta.name && meta.name !== sym ? meta.name : '');
     const fact = (k, val) => `<div><span>${k}</span><b>${val}</b></div>`;
-    const rg = as.stk.range, md = iso => (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10));
-    const rangeText = rg.range === 'ytd' ? '年初至今' : rg.range === 'custom' ? md(rg.from) + '–' + (rg.to ? md(rg.to) : '今天') : '';
+    const rangeText = rangeLabel(as.stk.range);
     const hasReal = Math.abs(gp.realizedTwd) >= 0.5;
 
     const topHtml = `<div class="gd-head">
@@ -1938,7 +1925,7 @@ App.Views = (function () {
       <div class="card stk-chart">
         <div class="seg seg-wide" id="stk-mode"><button class="seg-btn ${as.stk.mode === 'value' ? 'active' : ''}" data-v="value">市值與成本</button><button class="seg-btn ${as.stk.mode === 'price' ? 'active' : ''}" data-v="price">股價與均價</button></div>
         <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>Buy</span><span><i class="d2"></i>Sell</span>
-          <button class="stk-cal${as.stk.range.range !== 'all' ? ' on' : ''}" id="stk-cal" aria-label="選擇走勢範圍，目前：${rangeText || '全部'}">${rangeText ? `<em>${rangeText}</em>` : ''}<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14.5" rx="2.2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg></button></div>
+          <button class="stk-cal${as.stk.range.range !== 'all' ? ' on' : ''}" id="stk-cal" aria-label="選擇走勢範圍，目前：${rangeText || '全部'}">${rangeText ? `<em>${rangeText}</em>` : ''}${CAL_SVG}</button></div>
         <div class="stk-host" id="stk-host"></div>
       </div>
       <div class="gd-lh"><span>交易紀錄 ${txs.length} 筆</span></div>
@@ -1976,7 +1963,7 @@ App.Views = (function () {
         extremeFmt: x => value ? U.fmtKMBB(x) : cur + U.formatPrice(x),   // 主線的最高／最低點標示
       });
     };
-    root.querySelector('#stk-cal').addEventListener('click', () => openStockRange(sym, U.isoDate(new Date(txs[txs.length - 1].time)), () => stockDetail(root, sym)));
+    root.querySelector('#stk-cal').addEventListener('click', () => openRangeDialog(as.stk.range, U.isoDate(new Date(txs[txs.length - 1].time)), r => { as.stk.range = r; stockDetail(root, sym); }));
     if (st.key === key && st.data) draw(st.data);
     else if (st.error === key) {
       host.innerHTML = '<div class="chart-empty">走勢載入失敗<br><button class="cal-retry" id="stk-retry">點此重試</button></div>';
