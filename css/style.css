@@ -577,24 +577,29 @@ input, select { font-family: inherit; font-size: 15px; }
 .stat-val { text-align: right; min-width: 0; }
 .stat-amt { font-size: 14px; font-weight: 700; white-space: nowrap; }
 .stat-sub { font-size: 11px; color: var(--sub); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 群組損益：目前（未實現）／已實現／合計。兩行：標題（含 %）＋金額（萬） */
-.gd-pnl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 2px 10px; padding: 10px 4px; background: var(--card); border-radius: var(--radius); }
-.gd-pc { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; padding: 0 4px; font: inherit; color: inherit; background: none; }
-.gd-pc + .gd-pc { border-left: 1px solid var(--divider); }
-.gd-pc span { font-size: 11.5px; color: var(--sub); white-space: nowrap; }
-.gd-pc span i { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
-.gd-pc span em { font-style: normal; color: var(--chev); }
-.gd-pc b { font-size: 16px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
-button.gd-pc { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-button.gd-pc:active { opacity: 0.55; }
+/* 群組頁 Hero：左＝市值＋今日漲跌；右＝目前損益／已實現／合計 */
+.gd-hero { display: flex; align-items: stretch; gap: 12px; padding: 2px 4px 14px; }
+.gd-hl { flex: 1 1 auto; min-width: 0; }
+.gd-cap { font-size: 13px; font-weight: 600; }
+.gd-big { font-size: clamp(22px, 8.2vw, 33px); font-weight: 800; letter-spacing: -0.5px; line-height: 1.15; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.gd-big.sm { font-size: clamp(19px, 6.4vw, 25px); }   /* 億級：字縮小才放得下 */
+.gd-big.xs { font-size: clamp(16px, 5.4vw, 21px); }
+.gd-day { font-size: 13px; font-weight: 700; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.gd-day span { color: var(--sub); font-weight: 500; font-size: 12px; margin-left: 2px; }
+.gd-hr { flex: none; display: flex; flex-direction: column; justify-content: space-between; gap: 5px; padding-left: 12px; border-left: 1px solid var(--divider); }
+.gd-kv { display: grid; grid-template-columns: auto auto; column-gap: 12px; align-items: baseline; justify-content: space-between; width: 100%; padding: 0; font: inherit; color: inherit; background: none; text-align: left; }
+.gd-kv span { font-size: 12px; color: var(--sub); white-space: nowrap; }
+.gd-kv span em { font-style: normal; color: var(--chev); }
+.gd-kv b { font-size: 15px; font-weight: 800; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+.gd-kv i { grid-column: 2; font-style: normal; font-size: 11px; font-weight: 700; text-align: right; line-height: 1.1; font-variant-numeric: tabular-nums; }
+button.gd-kv { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button.gd-kv:active { opacity: 0.55; }
 .gd-pl { font-size: 11.5px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 /* 歷史頁群組模式的標題列（返回鈕＋群組名） */
 .hist-grp { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .hist-grp-t { display: flex; flex-direction: column; min-width: 0; }
 .hist-grp-t b { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hist-grp-t span { font-size: 12px; color: var(--sub); }
-.gd-mv { display: flex; justify-content: space-between; align-items: center; padding: 14px; font-size: 15px; font-weight: 700; }
-.gd-mv b { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
 /* 持股清單小標題：檔數＋排序 */
 .gd-lh { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 6px; font-size: 12.5px; color: var(--sub); }
 .gd-sort { color: var(--sub); font-size: 12.5px; font-weight: 700; padding: 4px 2px 4px 8px; }

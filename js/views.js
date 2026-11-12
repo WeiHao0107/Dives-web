@@ -389,7 +389,7 @@ App.Views = (function () {
   const ALLOC_PAL = ['#5B8FD8', '#4FB286', '#E3B341', '#E0675C', '#A07CD0', '#E08E52', '#2BB3B3', '#E86FA8', '#93A23E']; // 前 8 檔＋剛好 9 檔時的第 9 色
   const ALLOC_OTHER = '#B9B3AC';
   const ALLOC_MK_COL = { tw: COL.tw, us: COL.us, crypto: COL.crypto };
-  // cfg：{ open, by, sel, groupId?, title?, headValue? }；headValue＝標題列右側的數值（群組頁的市值合計）；有 groupId → 群組詳情頁的組內分布（只有個股、無切換列）
+  // cfg：{ open, by, sel, groupId?, title?, headValue?, centerCount? }；headValue＝標題列右側的數值；centerCount＝圓心只放檔數（總額已顯示在別處）；有 groupId → 群組詳情頁的組內分布（只有個股、無切換列）
   function allocCardHtml(cfg) {
     const ui = { open: cfg.open, by: cfg.by || 'symbol' };
     const probe = C.allocation('symbol', 8, cfg.groupId);
@@ -435,7 +435,7 @@ App.Views = (function () {
     const sub = s0 ? (by === 'symbol' && !s0.other ? (s0.name && s0.name !== s0.label ? esc(s0.name) : '') : s0.count + ' 檔') : a.count + ' 檔';
     const ctr = s0
       ? `<div class="l">${s0.text}</div><div class="v alloc-amt">${U.fmtKMBB(s0.value)}</div><div class="p" style="color:${s0.color}">${pctTxt(s0.pct)}</div>${sub ? `<div class="l">${sub}</div>` : ''}`
-      : cfg.headValue ? `<div class="l">組內持股</div><div class="v">${sub}</div>`
+      : cfg.centerCount ? `<div class="l">持股</div><div class="v">${sub}</div>`
       : `<div class="l">${totalLbl}</div><div class="v alloc-amt">${U.fmtKMBB(a.total)}</div><div class="l">${sub}</div>`;
     html += `<div class="alloc-body"><div class="alloc-donut" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${arcs}${tags}</svg><div class="alloc-ctr">${ctr}</div></div>
       <div class="alloc-lg">${slices.map((sl, i) => `<button class="alloc-row ${sel >= 0 ? (sel === i ? 'sel' : 'dim') : ''}" data-k="${esc(sl.key)}"><i style="background:${sl.color}"></i><span class="n">${sl.text}</span><span class="pc" style="color:${sl.other ? 'var(--sub)' : sl.color}">${pctTxt(sl.pct)}</span></button>`).join('')}</div></div></div>`;
@@ -1716,14 +1716,32 @@ App.Views = (function () {
     const gTotal = members.reduce((s, p) => s + mvTwdOf(p, rate), 0);
     // 群組損益：目前（未實現）、已實現（含已賣光仍歸在此群組的標的）、兩者合計
     const gp = C.groupPnl(Object.keys(gmap).filter(sym => gmap[sym] === gid), allPos, rate);
-    // 金額用「萬」精簡顯示；% 放在標題那一行（不另佔一列）。已實現可點 → 歷史頁只看這個群組的賣出
+    // 今日漲跌（與資產頁群組列同一算法：台股日模式下未開盤的市場計 0；含今日賣光的成員）
+    const usGated = S.getDayMode() === 'twday' && !U.usCountsTowardToday();
+    const twGated = S.getDayMode() === 'twday' && !U.twCountsTowardToday();
+    const dayTwd = p => {
+      const mk = U.normalizeMarketKey(p.market), usd = mk === U.Market.us || mk === U.Market.crypto;
+      if ((usGated && mk === U.Market.us) || (twGated && !usd)) return 0;
+      return (p.dayPnl || 0) * (usd ? rate : 1);
+    };
+    const gDay = members.reduce((s, p) => s + dayTwd(p), 0) + (allPos.closedToday || []).filter(c => gmap[c.symbol] === gid).reduce((s, c) => s + dayTwd(c), 0);
+    const gPrev = gTotal - gDay, gDayPct = Math.abs(gPrev) > 1e-9 ? gDay / Math.abs(gPrev) * 100 : 0;
+    // Hero：左邊市值＋今日漲跌；右邊三項損益（金額用「萬」）。已實現可點 → 歷史頁只看這個群組的賣出
     const compact = x => Math.abs(x) < 0.5 ? '0' : U.fmtBannerSigned(x);
-    const pnlCell = (label, x, extra, attr) => `<${attr ? 'button' : 'div'} class="gd-pc"${attr || ''}><span>${label}${extra || ''}</span><b style="color:${UI.pnlColor(Math.abs(x) < 0.5 ? 0 : x)}">${compact(x)}</b></${attr ? 'button' : 'div'}>`;
-    const pnlHtml = members.length || Math.abs(gp.realizedTwd) >= 0.5 ? `<div class="gd-pnl">
-      ${pnlCell('目前損益', gp.unrealizedTwd, gp.unrealizedPct != null ? ` <i style="color:${UI.pnlColor(gp.unrealizedTwd)}">${U.fmtPct(gp.unrealizedPct)}</i>` : '')}
-      ${pnlCell('已實現', gp.realizedTwd, ' <em>›</em>', ' id="gd-realized" aria-label="查看這個群組的賣出紀錄"')}
-      ${pnlCell('合計', gp.totalTwd)}
-    </div>` : '';
+    const colorOf = x => UI.pnlColor(Math.abs(x) < 0.5 ? 0 : x);
+    const showPnl = members.length || Math.abs(gp.realizedTwd) >= 0.5;
+    const heroHtml = `<div class="gd-hero">
+      <div class="gd-hl">
+        <div class="gd-cap">市值 (TWD)</div>
+        <div class="gd-big${gTotal >= 1e9 ? ' xs' : gTotal >= 1e8 ? ' sm' : ''}">${U.fmtWhole(gTotal)}</div>
+        <div class="gd-day" style="color:${UI.pnlColor(gDay)}">${gDay > 0 ? '▲' : gDay < 0 ? '▼' : '–'} ${U.fmtWhole(Math.abs(gDay))} (${Math.abs(gDayPct).toFixed(2)}%) <span>今日</span></div>
+      </div>
+      ${showPnl ? `<div class="gd-hr">
+        <div class="gd-kv"><span>目前損益</span><b style="color:${colorOf(gp.unrealizedTwd)}">${compact(gp.unrealizedTwd)}</b>${gp.unrealizedPct != null ? `<i style="color:${colorOf(gp.unrealizedTwd)}">${U.fmtPct(gp.unrealizedPct)}</i>` : ''}</div>
+        <button class="gd-kv" id="gd-realized" aria-label="查看這個群組的賣出紀錄"><span>已實現 <em>›</em></span><b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></button>
+        <div class="gd-kv"><span>合計</span><b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></div>
+      </div>` : ''}
+    </div>`;
     const basis = S.getPctBasis();
     const denomV = basis === 'group' ? (gTotal || 1) : basis === 'invest' ? sum.investTwd : sum.netWorth;
     members.sort((a, b) => as.detailAsc ? mvTwdOf(a, rate) - mvTwdOf(b, rate) : mvTwdOf(b, rate) - mvTwdOf(a, rate));
@@ -1737,14 +1755,12 @@ App.Views = (function () {
         <button class="gd-plus" aria-label="新增">＋</button>
       </div>
     </div>
-    ${pnlHtml}`;
+    ${heroHtml}`;
 
     // 組內分布圓餅（2 檔以上才顯示；分母＝群組合計，不受「投資佔比基準」影響）
-    //   市值合計放在這張卡的標題列；只有 1 檔（不畫圓餅）時改成單獨一列
-    const mvText = 'NT$ ' + U.fmtWhole(gTotal);
+    //   市值已在上方 Hero → 圓心只放檔數（centerCount）
     let listHtml = members.filter(p => mvTwdOf(p, rate) > 0).length >= 2
-      ? allocCardHtml({ open: S.getAllocUi().groupOpen, sel: as.groupAllocSel, groupId: gid, title: '市值合計', headValue: mvText })
-      : members.length ? `<div class="card gd-mv"><span>市值合計</span><b>${mvText}</b></div>` : '';
+      ? allocCardHtml({ open: S.getAllocUi().groupOpen, sel: as.groupAllocSel, groupId: gid, title: '組內分布', centerCount: true }) : '';
     if (members.length) listHtml += `<div class="gd-lh"><span>持股 ${members.length} 檔</span>${members.length > 1 ? `<button class="gd-sort" aria-label="依市值排序，目前${as.detailAsc ? '由小到大' : '由大到小'}">市值 ${as.detailAsc ? '▲' : '▼'}</button>` : ''}</div>`;
     if (!members.length) {
       listHtml += `<div class="empty" style="padding:40px 16px">此群組尚無持倉<br>點右上 ＋ 買入並加入，或從投資清單指定群組</div>`;
