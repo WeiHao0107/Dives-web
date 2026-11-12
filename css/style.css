@@ -692,4 +692,50 @@ input, select { font-family: inherit; font-size: 15px; }
 /* 資產頁 Hero：ATH（歷史最高淨資產） */
 .nw-ath { margin-top: 5px; font-size: 12px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nw-ath b { font-weight: 700; color: var(--text); }
-.nw-ath-new { font-weight: 700; color: var(--accent-ink); }
+/* ---- ATH 特效：淨資產正在歷史新高時，數字變成流動的金色、背後有光暈、旁邊有閃爍的星芒 ---- */
+.nw-numrow { position: relative; display: block; width: -webkit-fit-content; width: fit-content; max-width: 100%; }
+.nw-hero.ath { position: relative; isolation: isolate; --ath-1: #9A5B06; --ath-2: #D4920F; --ath-hi: #FFE28A; --ath-sp: #E8A912; }
+:root[data-theme="dark"] .nw-hero.ath { --ath-1: #E2A62B; --ath-2: #FFD35C; --ath-hi: #FFFBE6; --ath-sp: #FFD35C; }
+/* 光澤：斜向的重複漸層，水平週期 186.35px（= 180px ÷ sin 105°），背景剛好平移一個週期 → 無縫循環 */
+.nw-hero.ath .nw-num {
+  background-image: repeating-linear-gradient(105deg, var(--ath-1) 0, var(--ath-2) 44px, var(--ath-hi) 64px, var(--ath-2) 84px, var(--ath-1) 128px, var(--ath-1) 180px);
+  background-size: 186.35px 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+  animation: ath-sheen 3.6s linear infinite; animation-delay: var(--ath-d, 0ms);
+}
+@keyframes ath-sheen { to { background-position: 186.35px 0; } }
+.nw-hero.ath::before {
+  content: ''; position: absolute; z-index: -1; left: -16px; top: -10px; width: min(82%, 320px); height: calc(100% + 6px); pointer-events: none;
+  background: radial-gradient(58% 62% at 32% 56%, rgba(245,186,50,0.30), rgba(245,186,50,0) 72%), radial-gradient(46% 52% at 78% 40%, rgba(109,95,213,0.16), rgba(109,95,213,0) 72%);
+  filter: blur(6px); animation: ath-breathe 4.8s ease-in-out infinite; animation-delay: var(--ath-d, 0ms);
+}
+@keyframes ath-breathe { 0%, 100% { opacity: 0.5; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1.05); } }
+.ath-sp { position: absolute; width: 12px; height: 12px; background: var(--ath-sp); opacity: 0; pointer-events: none;
+  clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%);
+  animation: ath-twinkle 2.4s ease-in-out infinite; animation-delay: var(--ath-d, 0ms); }
+.ath-sp.s1 { top: -2px; right: -15px; }
+.ath-sp.s2 { top: 56%; right: -27px; width: 8px; height: 8px; animation-delay: calc(var(--ath-d, 0ms) - 800ms); }
+.ath-sp.s3 { top: 30%; left: -13px; width: 7px; height: 7px; animation-delay: calc(var(--ath-d, 0ms) - 1500ms); }
+.ath-sp.s4 { bottom: -1px; right: -11px; width: 7px; height: 7px; animation-delay: calc(var(--ath-d, 0ms) - 400ms); }
+@keyframes ath-twinkle { 0%, 100% { opacity: 0; transform: scale(0.3) rotate(0deg); } 50% { opacity: 1; transform: scale(1) rotate(45deg); } }
+.nw-hero.ath .nw-num.ath-pop { animation: ath-sheen 3.6s linear infinite, ath-pop 0.7s cubic-bezier(.2,.8,.3,1.2); animation-delay: var(--ath-d, 0ms), 0ms; transform-origin: left center; }
+@keyframes ath-pop { 0% { transform: scale(0.9); } 55% { transform: scale(1.06); } 100% { transform: scale(1); } }
+/* 進場噴發（掛在 body）：光點沿各自角度飛出，外加兩圈擴散的光環 */
+.ath-burst { position: fixed; z-index: 60; width: 0; height: 0; pointer-events: none; }
+.ath-p { position: absolute; left: 0; top: 0; width: var(--s); height: var(--s); margin: calc(var(--s) / -2); border-radius: 50%; background: #F2B62C; opacity: 0;
+  animation: ath-fly 1.3s cubic-bezier(.12,.78,.24,1) forwards; }
+.ath-p.star { width: calc(var(--s) * 2.4); height: calc(var(--s) * 2.4); margin: calc(var(--s) * -1.2); border-radius: 0; background: #FFD86B;
+  clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%); }
+@keyframes ath-fly {
+  0% { opacity: 0; transform: rotate(var(--a)) translateX(8px) scale(0.4); }
+  14% { opacity: 1; }
+  68% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateX(var(--d)) scale(1); }
+}
+.ath-ring { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(242,182,44,0.9); opacity: 0; animation: ath-ring 1s ease-out forwards; }
+.ath-ring.r2 { animation-delay: 0.16s; border-color: rgba(109,95,213,0.55); }
+@keyframes ath-ring { 0% { opacity: 0.9; transform: scale(0.4); } 100% { opacity: 0; transform: scale(10); } }
+@media (prefers-reduced-motion: reduce) {
+  .nw-hero.ath .nw-num, .nw-hero.ath::before, .ath-sp { animation: none; }
+  .ath-sp { opacity: 0.9; }
+}

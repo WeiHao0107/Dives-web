@@ -1182,17 +1182,20 @@ App.Views = (function () {
     const dayPct = Math.abs(prevNet) > 1e-9 ? dayChange / Math.abs(prevNet) * 100 : 0;
     const dayArrow = dayChange > 0 ? '▲' : dayChange < 0 ? '▼' : '–';
     const lev = S.getLeverage().show ? C.leverageSummary() : null; // 槓桿倍率（設定開啟才算）
-    // ATH（歷史最高淨資產）：至少要有前一天的紀錄才顯示；今天創高 → 標示，否則顯示高點、日期與目前距離
+    // ATH（歷史最高淨資產）：至少要有前一天的紀錄才顯示。目前就在歷史新高 → 不顯示這行，改成數字的金色特效（athNow）
     const ath = S.getSnapshots().length >= 2 ? C.athInfo(sum.netWorth) : null;
     const athDate = ath ? (iso => (iso.slice(0, 4) === U.isoDate().slice(0, 4) ? '' : iso.slice(0, 4) + '/') + (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10)))(ath.date) : '';
-    const athHtml = !ath ? '' : ath.isToday
-      ? `<div class="nw-ath"><span class="nw-ath-new">★ 今日創歷史新高</span></div>`
+    const athNow = !!(ath && ath.isToday);
+    const athHtml = !ath || athNow ? ''
       : `<div class="nw-ath">ATH <b class="nw-ath-amt">${U.fmtWhole(ath.value)}</b> · ${athDate} · 距高點 <b>${ath.drawdownPct.toFixed(1)}%</b></div>`;
+    // 特效的動畫相位用時間對齊（負的 animation-delay）：頁面每次重繪都會重建 DOM，不對齊的話光澤會一直跳回起點
+    const athAttr = athNow ? ` style="--ath-d:-${Date.now() % 14400}ms"` : '';
+    const athSparks = athNow ? '<i class="ath-sp s1"></i><i class="ath-sp s2"></i><i class="ath-sp s3"></i><i class="ath-sp s4"></i>' : '';
     // 固定頂部：淨資產 Hero（捲動時不動）
-    const topHtml = `<div class="nw-hero">
+    const topHtml = `<div class="nw-hero${athNow ? ' ath' : ''}"${athAttr}>
       <div class="nw-open" id="nw-open">
         <div class="nw-cap">我的淨資產 (TWD)${eyeBtnHtml('as-eye')}</div>
-        <div class="nw-num">${U.fmtWhole(sum.netWorth)}</div>
+        <div class="nw-numrow"><div class="nw-num">${U.fmtWhole(sum.netWorth)}</div>${athSparks}</div>
         <div class="nw-day"><span style="color:${UI.pnlColor(dayChange)}">${dayArrow} ${U.fmtWhole(Math.abs(dayChange))} (${Math.abs(dayPct).toFixed(2)}%)</span>${lev ? `<button class="nw-lev" id="as-lev">槓桿 ${lev.ratio == null ? '--' : lev.ratio.toFixed(2) + '×'}</button>` : ''}</div>
         ${athHtml}
       </div>
@@ -1367,6 +1370,36 @@ App.Views = (function () {
     root.querySelectorAll('.as-row.member').forEach(r => r.addEventListener('click', () =>
       openGroupAssign(r.dataset.sym, () => assets(root))));
     maskAmounts(root);
+    if (athNow) athBurstOnce();
+  }
+
+  // ATH 進場特效：從淨資產數字向外噴出金色光點＋一圈光環。每次開啟 App 每天只播一次；
+  //   掛在 body 上（position: fixed），資產頁之後重繪也不會被打斷。鎖定畫面還在、或系統設定減少動態效果 → 不播
+  function athBurstOnce() {
+    const key = 'dives_ath_fx', today = U.isoDate();
+    try { if (sessionStorage.getItem(key) === today) return; } catch (e) { return; }
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    setTimeout(() => {   // 等分頁滑入動畫結束再量位置
+      const num = document.querySelector('.nw-hero.ath .nw-num');
+      if (!num || document.getElementById('lock-overlay') || document.querySelector('.ath-burst')) return;
+      const r = num.getBoundingClientRect();
+      if (!r.width) return;
+      try { if (sessionStorage.getItem(key) === today) return; sessionStorage.setItem(key, today); } catch (e) { return; }
+      const host = document.createElement('div');
+      host.className = 'ath-burst';
+      host.style.left = (r.left + r.width / 2) + 'px';
+      host.style.top = (r.top + r.height / 2) + 'px';
+      let html = '<i class="ath-ring"></i><i class="ath-ring r2"></i>';
+      const N = 22;
+      for (let i = 0; i < N; i++) {
+        const a = i / N * 360 + (i % 2 ? 7 : -5), d = 78 + (i * 37) % 74, s = 4 + (i * 13) % 5, delay = (i * 29) % 140;
+        html += `<i class="ath-p${i % 3 === 0 ? ' star' : ''}" style="--a:${a.toFixed(1)}deg;--d:${d}px;--s:${s}px;animation-delay:${delay}ms"></i>`;
+      }
+      host.innerHTML = html;
+      document.body.appendChild(host);
+      num.classList.add('ath-pop');
+      setTimeout(() => host.remove(), 2000);
+    }, 340);
   }
 
   // 淨資產長條圖頁：淨資產 / 漲幅；X 軸 天(7)／週(5)／月(12)／年(10)
