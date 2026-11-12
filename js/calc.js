@@ -770,6 +770,61 @@ App.Calc = (function () {
     return out;
   }
 
+  // 報表月曆：某年月各日損益（TWD）。cat: all(含息) | tw | us | crypto | fut | div
+  //   快照類＝當日累計 − 前一筆快照（跨月以上月最後一筆為基準）；股息依入帳日（股利帳本）
+  //   回傳 { days: { 日: 金額 }, sum }；all = tw + us + crypto + fut + div
+  function calendarPnl(year, month, cat) {
+    const ym = String(year) + '-' + String(month).padStart(2, '0');
+    const days = {}; let sum = 0;
+    if (cat === 'div') {
+      const rate = S.getFxRate() || 31.5;
+      for (const d of S.getDividends()) {
+        if (!d.date || d.date.slice(0, 7) !== ym) continue;
+        const v = (d.amount || 0) * (_divIsUsd(d.symbol) ? rate : 1), k = +d.date.slice(8, 10);
+        days[k] = (days[k] || 0) + v; sum += v;
+      }
+      return { days, sum };
+    }
+    const acc = {
+      all: x => (x.totalPnl || 0) + dividendsUpTo(x.date),
+      tw: x => x.twTotalPnl || 0,
+      us: x => x.usTotalPnlTwd || 0,
+      crypto: x => x.cryptoTotalPnlTwd || 0,
+      fut: x => (x.futRealizedPnl || 0) + (x.futUnrealizedTwd || 0),
+    }[cat];
+    if (!acc) return { days, sum };
+    const snaps = S.getSnapshots().slice().sort((a, b) => a.date < b.date ? -1 : 1);
+    let prev = null;
+    for (const x of snaps) {
+      if (x.date.slice(0, 7) > ym) break;
+      if (x.date.slice(0, 7) === ym) { const v = acc(x) - (prev ? acc(prev) : 0); days[+x.date.slice(8, 10)] = v; sum += v; }
+      prev = x;
+    }
+    return { days, sum };
+  }
+  // 群組每日損益：series = buildGroupSeries(symbols, hist) 的結果 [{date, mv, cost}]
+  //   當日 = Δ(市值 − 成本) + 當日已實現（賣出後成本與市值同減，獲利落在已實現）；不含股息
+  function groupCalendarPnl(symbols, series, year, month, fxRate) {
+    const ym = String(year) + '-' + String(month).padStart(2, '0');
+    const set = new Set(symbols || []);
+    const rate = fxRate || S.getFxRate() || 31.5;
+    const mmap = S.metaMap();
+    const isUsd = sym => { const m = U.normalizeMarketKey(mmap[sym] ? mmap[sym].market : U.guessMarketBySymbol(sym)); return m === U.Market.us || m === U.Market.crypto; };
+    const rzBy = {};
+    for (const r of S.getRealized()) {
+      if (!set.has(r.symbol)) continue;
+      const d = U.isoDate(new Date(r.time));
+      rzBy[d] = (rzBy[d] || 0) + (r.realizedPnl || 0) * (isUsd(r.symbol) ? rate : 1);
+    }
+    const days = {}; let sum = 0, prev = 0;
+    for (const p of series || []) {
+      const cur = (p.mv || 0) - (p.cost || 0);
+      if (p.date.slice(0, 7) === ym) { const v = cur - prev + (rzBy[p.date] || 0); days[+p.date.slice(8, 10)] = v; sum += v; }
+      prev = cur;
+    }
+    return { days, sum };
+  }
+
   // 統計頁：區間獲利之最（日/週/月/年）、單筆交易之最、目前持倉之最（SPEC §10）
   function tradingStats() {
     const snaps = S.getSnapshots().slice().sort((a, b) => a.date < b.date ? -1 : 1);
@@ -1127,7 +1182,7 @@ App.Calc = (function () {
     computeAvgCostPosition, buildPositions, buildSummary,
     addTransaction, updateTransaction, deleteTransaction, recomputeRealized, realizedByTxId, firstOversell,
     addStockDividend, dividendsTotalTwd, dividendsBetween, dividendsUpTo, addDividend, updateDividend, deleteDividend, sharesHeldBefore,
-    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, txCashDelta, cashLiabTwd,
+    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, calendarPnl, groupCalendarPnl, txCashDelta, cashLiabTwd,
     netWorthBuckets, findAbsurdFees, repairFees, buildGroupSeries, tradingStats, scopedStats, xirrRate, buildXirrFlows, portfolioXirr,
     recurringDueDates, isoAddDays, priceOnOrBefore, planFee, applyLiabilityPayment, investedBetween, feesSummary,
   };

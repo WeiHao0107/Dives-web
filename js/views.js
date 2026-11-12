@@ -729,8 +729,9 @@ App.Views = (function () {
   }
 
   /* ===================== 報表 ===================== */
-  const rep = { mode: 'yearly', year: new Date().getFullYear(), month: null, asc: false, statsPage: false }; // 鑽取：年→月→日；列表預設倒序（新→舊）
-  function resetReportNav() { rep.mode = 'yearly'; rep.month = null; rep.statsPage = false; } // 進報表一律回年報表
+  const rep = { mode: 'yearly', year: new Date().getFullYear(), month: null, asc: false, statsPage: false,
+    cal: { cat: 'all', gid: null, menu: false }, grpCache: null, grpLoading: null, grpError: null }; // 鑽取：年→月→日；列表預設倒序（新→舊）
+  function resetReportNav() { rep.mode = 'yearly'; rep.month = null; rep.statsPage = false; closeCalMenu(); } // 進報表一律回年報表
   // 欄位 → 圖表標題 / 表頭底線色（藍：淨資產/投入；綠：損益/已未實現）
   const REP_COLS = {
     netAsset: { title: '總倉位', underline: '#4A82C8' },
@@ -889,7 +890,9 @@ App.Views = (function () {
 
     // 捲動內容
     let listHtml = '';
-    if (!reports.length) {
+    if (rep.mode === 'daily') {
+      listHtml = `<div class="card rep-cal" id="rep-cal"></div>`;   // 月份頁：每日損益月曆（paintCalendar 填入）
+    } else if (!reports.length) {
       listHtml = `<div class="empty">${rep.mode === 'yearly' ? '暫無報表資料，使用一段時間後每日快照將彙整於此' : '此期間暫無資料'}</div>`;
     } else {
       // 期間列表：年→月、月→日 可鑽入（日為葉層）；預設倒序（新→舊）
@@ -916,6 +919,7 @@ App.Views = (function () {
 
     root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${listHtml}</div></div>`;
     bindReportHead(root);
+    if (rep.mode === 'daily') paintCalendar(root);
 
     const sortBtn = root.querySelector('#rep-sort');
     if (sortBtn) sortBtn.addEventListener('click', () => { rep.asc = !rep.asc; report(root); });
@@ -928,6 +932,83 @@ App.Views = (function () {
       report(root);
     }));
   }
+  // ── 月份頁每日損益月曆 ──
+  // 每格只有日期＋當日盈虧；左上下拉選單切換 總損益／台股／美股／期貨／加密／股息／各群組，右上為該分類本月合計
+  // 群組：每日快照沒有分群組的數字 → 用成員歷史股價回算（fetchGroupSeries，需連網；結果快取到當天或交易筆數變動為止）
+  const CAL_CATS = [['all', '總損益'], ['tw', '台股'], ['us', '美股'], ['fut', '期貨'], ['crypto', '加密'], ['div', '股息']];
+  function calCats() { return CAL_CATS.filter(c => c[0] !== 'fut' || (App.ViewsFutures && App.ViewsFutures.visible())); }
+  function closeCalMenu() {
+    rep.cal.menu = false;
+    if (rep.cal._off) { document.removeEventListener('pointerdown', rep.cal._off, true); rep.cal._off = null; }
+  }
+  // 群組序列：有快取直接回傳；否則開始抓、回 null（抓完自動重繪）
+  function calGroupSeries(gid, root) {
+    const key = gid + '|' + S.getTransactions().length + '|' + U.isoDate();
+    if (rep.grpCache && rep.grpCache.key === key) return rep.grpCache.series;
+    if (rep.grpLoading === key || rep.grpError === key) return null;
+    rep.grpLoading = key;
+    const gmap = S.getGroupMap();
+    fetchGroupSeries(Object.keys(gmap).filter(x => gmap[x] === gid))
+      .then(series => { rep.grpCache = { key, series }; })
+      .catch(e => { console.error(e); rep.grpError = key; UI.toast('載入群組損益失敗', 'error'); })
+      .then(() => { rep.grpLoading = null; if (rep.mode === 'daily' && root.querySelector('#rep-cal')) paintCalendar(root); });
+    return null;
+  }
+  function paintCalendar(root) {
+    const host = root.querySelector('#rep-cal');
+    if (!host) return;
+    const c = rep.cal, groups = S.getGroups(), cats = calCats();
+    if (c.cat === 'group' && !groups.some(g => g.id === c.gid)) { c.cat = 'all'; c.gid = null; }   // 群組已刪除
+    if (c.cat !== 'group' && !cats.some(x => x[0] === c.cat)) c.cat = 'all';
+    const label = c.cat === 'group' ? groups.find(g => g.id === c.gid).name : cats.find(x => x[0] === c.cat)[1];
+
+    // 資料：{days, sum}；群組載入中／失敗 → data = null
+    let data = null, note = '';
+    if (c.cat === 'group') {
+      const gmap = S.getGroupMap(), symbols = Object.keys(gmap).filter(x => gmap[x] === c.gid);
+      const series = calGroupSeries(c.gid, root);
+      if (series) data = C.groupCalendarPnl(symbols, series, rep.year, rep.month);
+      else note = rep.grpLoading ? '載入群組損益中…' : '<button class="cal-retry" id="cal-retry">載入失敗，點此重試</button>';
+    } else data = C.calendarPnl(rep.year, rep.month, c.cat);
+
+    const first = new Date(rep.year, rep.month - 1, 1).getDay(), nDays = new Date(rep.year, rep.month, 0).getDate();
+    const tp = U.taipeiParts(), today = tp.year === rep.year && tp.month === rep.month ? tp.day : 0;
+    const days = data ? data.days : {};
+    let max = 0; for (const k in days) max = Math.max(max, Math.abs(days[k]));
+    let cells = '';
+    for (let i = 0; i < first; i++) cells += '<div class="cal-c pad"></div>';
+    for (let d = 1; d <= nDays; d++) {
+      const v = days[d], td = d === today ? ' today' : '';
+      if (v == null || Math.abs(v) < 0.5) { cells += `<div class="cal-c none${td}"><span class="cal-d">${d}</span></div>`; continue; }
+      const lvl = Math.abs(v) / max > 0.6 ? 3 : Math.abs(v) / max > 0.25 ? 2 : 1;
+      cells += `<div class="cal-c ${v > 0 ? 'g' : 'l'}${lvl}${td}"><span class="cal-d">${d}</span><span class="cal-v${Math.abs(v) >= 1e7 ? ' sm' : ''}">${U.fmtCalCell(v)}</span></div>`;
+    }
+    const mi = (cat, gid, text, sub) => {
+      const on = c.cat === cat && (cat !== 'group' || c.gid === gid);
+      return `<button class="cal-mi${on ? ' on' : ''}${sub ? ' sub' : ''}" data-cat="${cat}"${gid ? ` data-gid="${esc(gid)}"` : ''}><span>${text}</span>${on ? '<b>✓</b>' : ''}</button>`;
+    };
+    const menu = c.menu ? `<div class="cal-menu">${cats.map(x => mi(x[0], null, x[1])).join('')}${groups.length ? `<div class="cal-mh">群組</div>${groups.map(g => mi('group', g.id, esc(g.name), true)).join('')}` : ''}</div>` : '';
+    host.innerHTML = `<div class="cal-top"><button class="cal-dd${c.menu ? ' open' : ''}" id="cal-dd"><span>${esc(label)}</span><i>▾</i></button>
+        ${data ? `<b class="cal-sum" style="color:${UI.pnlColor(data.sum)}">${Math.abs(data.sum) < 0.5 ? '0' : U.fmtBannerSigned(data.sum)}</b>` : ''}</div>${menu}
+      <div class="cal-wk"><span class="we">日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span class="we">六</span></div>
+      ${note ? `<div class="cal-note">${note}</div>` : `<div class="cal-grid">${cells}</div>`}`;
+
+    host.querySelector('#cal-dd').addEventListener('click', () => {
+      if (c.menu) { closeCalMenu(); return paintCalendar(root); }
+      c.menu = true;
+      // 點選單以外的地方 → 關閉
+      c._off = e => { if (e.target.closest && (e.target.closest('.cal-menu') || e.target.closest('#cal-dd'))) return; closeCalMenu(); if (root.querySelector('#rep-cal')) paintCalendar(root); };
+      document.addEventListener('pointerdown', c._off, true);
+      paintCalendar(root);
+    });
+    host.querySelectorAll('.cal-mi').forEach(b => b.addEventListener('click', () => {
+      c.cat = b.dataset.cat; c.gid = b.dataset.gid || null;
+      closeCalMenu(); paintCalendar(root);
+    }));
+    const retry = host.querySelector('#cal-retry');
+    if (retry) retry.addEventListener('click', () => { rep.grpError = null; paintCalendar(root); });
+  }
+
   // 統計頁（點統計入口後開啟）：依目前報表層級決定範圍
   //   年報表→全部歷史；某年→該年度；某月→該月度。返回回到同層列表。
   function reportStatsPage(root) {

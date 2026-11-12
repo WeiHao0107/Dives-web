@@ -652,3 +652,36 @@ input, select { font-family: inherit; font-size: 15px; }
 .alloc-bar span { height: 100%; }
 .alloc-mini { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 14px 13px; font-size: 11.5px; color: var(--sub); }
 .alloc-mini i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+
+/* ── 報表月份頁：每日損益月曆 ── */
+.rep-cal { position: relative; padding: 10px 8px 10px; overflow: visible; }
+.cal-top { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 10px; }
+.cal-dd { display: inline-flex; align-items: center; gap: 6px; max-width: 62%; padding: 7px 10px 7px 12px; border-radius: 10px; background: var(--soft); color: var(--text); font-size: 14px; font-weight: 700; }
+.cal-dd span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-dd i { font-style: normal; font-size: 11px; color: var(--sub); flex: none; }
+.cal-dd.open { background: var(--accent-soft); color: var(--accent-ink); }
+.cal-sum { font-size: 16px; font-weight: 800; white-space: nowrap; }
+.cal-menu { position: absolute; left: 10px; top: 50px; z-index: 30; width: 200px; max-height: 60vh; overflow-y: auto; padding: 6px 0; background: var(--card); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.18), 0 0 0 1px var(--divider); }
+.cal-mi { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 10px 14px; font-size: 14.5px; color: var(--text); text-align: left; }
+.cal-mi span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-mi:active { background: var(--soft); }
+.cal-mi.on { color: var(--accent-ink); font-weight: 700; }
+.cal-mi b { font-size: 13px; flex: none; }
+.cal-mi.sub { padding-left: 26px; }
+.cal-mh { font-size: 11px; color: var(--sub); padding: 8px 14px 2px; margin-top: 4px; border-top: 1px solid var(--divider); }
+.cal-wk, .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal-wk { font-size: 11px; color: var(--sub); text-align: center; padding-bottom: 5px; }
+.cal-wk .we { opacity: 0.6; }
+.cal-c { height: 50px; border-radius: 9px; padding: 4px 1px 0; display: flex; flex-direction: column; align-items: center; gap: 5px; overflow: hidden; }
+.cal-c.none { border: 1px dashed var(--divider); }
+.cal-d { align-self: flex-start; padding-left: 4px; font-size: 10px; line-height: 1; color: var(--sub); }
+.cal-v { font-size: 11px; font-weight: 700; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cal-v.sm { font-size: 9.5px; letter-spacing: -0.4px; }
+.cal-c.g1 { background: rgba(229,57,53,0.08); } .cal-c.g2 { background: rgba(229,57,53,0.17); } .cal-c.g3 { background: rgba(229,57,53,0.28); }
+.cal-c.l1 { background: rgba(67,160,71,0.08); } .cal-c.l2 { background: rgba(67,160,71,0.17); } .cal-c.l3 { background: rgba(67,160,71,0.28); }
+.cal-c.g1 .cal-v, .cal-c.g2 .cal-v, .cal-c.g3 .cal-v { color: var(--gain); }
+.cal-c.l1 .cal-v, .cal-c.l2 .cal-v, .cal-c.l3 .cal-v { color: var(--loss); }
+.cal-c.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.cal-c.today .cal-d { color: var(--accent-ink); font-weight: 700; }
+.cal-note { padding: 60px 0; text-align: center; font-size: 13px; color: var(--sub); }
+.cal-retry { color: var(--accent-ink); font-weight: 700; font-size: 13px; }

@@ -211,13 +211,25 @@ App.Util = (function () {
     return (!isNaN(v) && v > 0) ? v : null;
   }
 
+  // 報表月曆格子金額（格寬約 43px）：<1萬 完整數字；<100萬 一位小數的萬；≥100萬 整數萬（不加千分位）；≥1億 兩位小數的億
+  function fmtCalCell(v) {
+    v = v || 0;
+    const a = Math.abs(v), sign = v < 0 ? '-' : '+';
+    const r = Math.round(a);
+    if (r === 0) return '0';
+    if (r < 1e4) return sign + r.toLocaleString('en-US');
+    if (a < 999950) { let t = (a / 1e4).toFixed(1); if (t.endsWith('.0')) t = t.slice(0, -2); return sign + t + '萬'; }
+    if (Math.round(a / 1e4) < 10000) return sign + Math.round(a / 1e4) + '萬';
+    return sign + (a / 1e8).toFixed(2) + '億';
+  }
+
   // HTML 跳脫：使用者輸入（帳戶/群組名、別名）與外部 API 名稱塞進 innerHTML 前一律經過這裡
   function esc(v) {
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   return {
-    esc, Market, normalizeMarketKey, guessMarketBySymbol, marketLabel,
+    esc, fmtCalCell, Market, normalizeMarketKey, guessMarketBySymbol, marketLabel,
     sanitizeSymbol, canonicalizeTwCode,
     fmtWhole, formatShares, formatPrice, fmtKMBB, fmtBanner, fmtBannerSigned, fmtPct,
     isoDate, taipeiParts, isWeekend, shouldUseMisRealtime, usOpenMinutes, usCountsTowardToday, twCountsTowardToday, parseNum
