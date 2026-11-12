@@ -27,8 +27,8 @@ App.Views = (function () {
 
   /* ===================== 投資（市場分類卡，沿用資產頁風格）===================== */
   // pf.open：各市場展開狀態（可同時展開多個）；預設全收合。排序固定依市值（大→小）
-  const pf = { detailFut: false, open: null, catChart: null, allocSel: null };
-  function resetPortfolioNav() { pf.catChart = null; pf.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
+  const pf = { detailFut: false, open: null, catChart: null, allocSel: null, detailSym: null };   // detailSym：個股頁（從投資分頁點進來）
+  function resetPortfolioNav() { pf.detailSym = null; pf.catChart = null; pf.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
 
   // 通知鈴鐺（資產/投資頁右上）：有待確認交易 → 顯示筆數（處理完才消失）；否則有未讀通知 → 紅點
   function notifBtnHtml() {
@@ -253,6 +253,7 @@ App.Views = (function () {
   function portfolio(root) {
     if (pf.catChart) return metricChartPage(root, pf.catChart, () => { pf.catChart = null; portfolio(root); });
     if (pf.detailFut) return App.ViewsFutures.page(root, () => { pf.detailFut = false; portfolio(root); });
+    if (pf.detailSym) return stockDetail(root, pf.detailSym, { get: () => pf.detailSym, close: () => { pf.detailSym = null; }, render: () => portfolio(root) });
     const positions = C.buildPositions();
     const summary = C.buildSummary(positions);
     // 期貨：有交易或已連結保證金帳戶才顯示卡；Hero 總倉位／今日漲跌只算股票，期貨在自己的卡
@@ -374,7 +375,7 @@ App.Views = (function () {
       pf.catChart = t.dataset.trend; portfolio(root);
     }));
     root.querySelectorAll('.pf-row').forEach(r =>
-      r.addEventListener('click', () => openSymbolActions(r.dataset.sym)));
+      r.addEventListener('click', () => { pf.detailSym = r.dataset.sym; as.stk.range = { range: 'all', from: null, to: null }; portfolio(root); }));
     bindAllocCard(root, {
       toggle: () => S.setAllocUi({ open: !S.getAllocUi().open }), setBy: v => S.setAllocUi({ by: v }),
       getSel: () => pf.allocSel, setSel: k => { pf.allocSel = k; }, rerender: () => portfolio(root),
@@ -536,32 +537,6 @@ App.Views = (function () {
     ov.querySelector('#rn-cancel').addEventListener('click', UI.closeSheet);
     ov.querySelector('#rn-save').addEventListener('click', save);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
-  }
-
-  function openSymbolActions(sym) {
-    const txs = S.getTransactions().filter(t => t.symbol === sym).sort((a, b) => b.time - a.time);
-    const kindOf = t => t.type === 'BUY' ? ['buy', 'Buy'] : t.type === 'SELL' ? ['sell', 'Sell'] : ['evt', '配']; // STOCK_DIV = 配股
-    let rows = txs.map(t => `<div class="tx-mini" data-id="${t.id}">
-      <span class="${kindOf(t)[0]}">${kindOf(t)[1]}</span>
-      <span>${t.type === 'STOCK_DIV' ? '配股 +' + U.formatShares(t.shares) : U.formatShares(t.shares) + ' @ ' + U.formatPrice(t.price)}</span>
-      <span class="tx-date">${U.isoDate(new Date(t.time))}</span>
-      <button class="link-edit" data-id="${t.id}">編輯</button>
-    </div>`).join('');
-    const ov = UI.openSheet(dispName(sym) + ' 交易明細', rows || '<p>無交易</p>',
-      `<button class="btn btn-ghost" id="rename-sym">重新命名</button><button class="btn btn-ghost" id="add-more">新增交易</button><button class="btn btn-danger" id="del-sym">刪除此檔</button>`);
-    ov.querySelector('#rename-sym').addEventListener('click', () => openRename(sym));
-    ov.querySelector('#del-sym').addEventListener('click', () =>
-      UI.confirmDialog(`確定刪除 ${esc(sym)} 的所有交易與損益？`, () => { C.deleteSymbol(sym); UI.closeSheet(); App.afterDataChange([]); }, '刪除'));
-    ov.querySelector('#add-more').addEventListener('click', () => { UI.closeSheet(); openTxForm(null, sym); });
-    ov.querySelectorAll('.link-edit').forEach(b => b.addEventListener('click', () => {
-      const tx = S.getTransactions().find(t => t.id === b.dataset.id);
-      UI.closeSheet();
-      if (!tx) return;
-      if (tx.type === 'STOCK_DIV') { // 配股走股利表單（檢視/刪除），不能當賣出編輯
-        const m = S.metaMap()[tx.symbol] || {};
-        openDividendForm('stock', { id: tx.id, symbol: tx.symbol, name: m.name || tx.symbol, market: m.market, shares: tx.shares, date: U.isoDate(new Date(tx.time)) });
-      } else openTxForm(tx);
-    }));
   }
 
   /* ===================== 歷史 ===================== */
@@ -1316,7 +1291,7 @@ App.Views = (function () {
   function assets(root) {
     if (as.catChart) return metricChartPage(root, as.catChart, () => { as.catChart = null; assets(root); });
     if (as.groupTrend) return groupTrendPage(root, as.groupTrend);
-    if (as.detailSym) return stockDetail(root, as.detailSym);   // 個股頁（從群組頁或資產頁點進來；返回後回到原本那一頁）
+    if (as.detailSym) return stockDetail(root, as.detailSym, { get: () => as.detailSym, close: () => { as.detailSym = null; }, render: () => assets(root) });   // 個股頁（返回後回到原本那一頁）
     if (as.detailGroup) return groupDetail(root, as.detailGroup);
     if (as.detailFut) return App.ViewsFutures.page(root, () => { as.detailFut = false; assets(root); });
     const rate = S.getFxRate() || 31.5;
@@ -1858,16 +1833,25 @@ App.Views = (function () {
   // 右上角選單：新增交易／分類群組
   function openStockMenu(sym, onDone) {
     const gid = S.getGroupMap()[sym], g = gid ? S.getGroups().find(x => x.id === gid) : null;
-    const item = (id, icon, title, sub) => `<button class="stk-mi" id="${id}"><span class="stk-mic">${icon}</span><span class="stk-mit"><b>${title}</b><small>${sub}</small></span><i>›</i></button>`;
-    const folder = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/></svg>';
-    const plus = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>';
-    const ov = UI.openSheet(esc(sym), `<div class="stk-menu">${item('stk-add', plus, '新增交易', '買進或賣出這一檔')}${item('stk-grp', folder, '分類群組', g ? '目前：' + esc(g.name) : '目前：未分組')}</div>`, '');
+    const item = (id, icon, title, sub, cls) => `<button class="stk-mi${cls || ''}" id="${id}"><span class="stk-mic">${icon}</span><span class="stk-mit"><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</span><i>›</i></button>`;
+    const svg = d => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    const body = `<div class="stk-menu">
+      ${item('stk-add', svg('<path d="M12 5.5v13M5.5 12h13"/>'), '新增交易', '買進或賣出這一檔')}
+      ${item('stk-grp', svg('<path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'), '分類群組', g ? '目前：' + esc(g.name) : '目前：未分組')}
+      ${item('stk-ren', svg('<path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="M13.5 6.5l4 4"/>'), '重新命名', '改這一檔顯示的名稱')}
+      ${item('stk-del', svg('<path d="M5 7h14M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2M7 7l1 13h8l1-13"/>'), '刪除此檔', '刪掉這一檔的所有交易與損益', ' danger')}
+    </div>`;
+    const ov = UI.openSheet(esc(sym), body, '');
     ov.querySelector('#stk-add').addEventListener('click', () => { UI.closeSheet(); openTxForm(null, sym); });
     ov.querySelector('#stk-grp').addEventListener('click', () => openGroupAssign(sym, onDone));
+    ov.querySelector('#stk-ren').addEventListener('click', () => openRename(sym));
+    ov.querySelector('#stk-del').addEventListener('click', () =>
+      UI.confirmDialog(`確定刪除 ${esc(sym)} 的所有交易與損益？這個動作無法復原。`, () => { C.deleteSymbol(sym); UI.closeSheet(); App.afterDataChange([]); }, '刪除'));
   }
-  function stockDetail(root, sym) {
+  // ctx：{ get() 目前顯示的代號, close() 離開個股頁, render() 重繪所在分頁 }——資產頁與投資頁各自提供
+  function stockDetail(root, sym, ctx) {
     const txs = S.getTransactions().filter(t => t.symbol === sym).sort((a, b) => b.time - a.time);
-    if (!txs.length) { as.detailSym = null; return assets(root); }   // 這檔的交易被刪光了
+    if (!txs.length) { ctx.close(); return ctx.render(); }   // 這檔的交易被刪光了
     const rate = S.getFxRate() || 31.5;
     const meta = S.metaMap()[sym] || {};
     const mk = U.normalizeMarketKey(meta.market || U.guessMarketBySymbol(sym));
@@ -1892,7 +1876,7 @@ App.Views = (function () {
     const topHtml = `<div class="gd-head">
       <button class="gd-back" aria-label="返回">‹</button>
       <div class="gd-title">${esc(sym)}${name ? ` <em>${esc(name)}</em>` : ''}</div>
-      <div class="gd-actions"><button id="stk-more" aria-label="更多：新增交易、分類群組">⋯</button></div>
+      <div class="gd-actions"><button id="stk-more" aria-label="更多：新增交易、分類群組、重新命名、刪除">⋯</button></div>
     </div>
     <div class="gd-hero">
       <div class="gd-blk">
@@ -1932,10 +1916,10 @@ App.Views = (function () {
       <div class="card stk-txs">${txRows}</div>`;
 
     root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${listHtml}</div></div>`;
-    const rerender = () => assets(root);
-    root.querySelector('.gd-back').addEventListener('click', () => { as.detailSym = null; assets(root); });
+    const rerender = () => ctx.render();
+    root.querySelector('.gd-back').addEventListener('click', () => { ctx.close(); ctx.render(); });
     root.querySelector('#stk-more').addEventListener('click', () => openStockMenu(sym, rerender));
-    root.querySelectorAll('#stk-mode .seg-btn').forEach(b => b.addEventListener('click', () => { as.stk.mode = b.dataset.v; stockDetail(root, sym); }));
+    root.querySelectorAll('#stk-mode .seg-btn').forEach(b => b.addEventListener('click', () => { as.stk.mode = b.dataset.v; rerender(); }));
     root.querySelectorAll('.stk-tx').forEach(b => b.addEventListener('click', () => {
       const tx = S.getTransactions().find(t => t.id === b.dataset.id);
       if (!tx) return;
@@ -1963,11 +1947,11 @@ App.Views = (function () {
         extremeFmt: x => value ? U.fmtKMBB(x) : cur + U.formatPrice(x),   // 主線的最高／最低點標示
       });
     };
-    root.querySelector('#stk-cal').addEventListener('click', () => openRangeDialog(as.stk.range, U.isoDate(new Date(txs[txs.length - 1].time)), r => { as.stk.range = r; stockDetail(root, sym); }));
+    root.querySelector('#stk-cal').addEventListener('click', () => openRangeDialog(as.stk.range, U.isoDate(new Date(txs[txs.length - 1].time)), r => { as.stk.range = r; rerender(); }));
     if (st.key === key && st.data) draw(st.data);
     else if (st.error === key) {
       host.innerHTML = '<div class="chart-empty">走勢載入失敗<br><button class="cal-retry" id="stk-retry">點此重試</button></div>';
-      host.querySelector('#stk-retry').addEventListener('click', () => { st.error = null; stockDetail(root, sym); });
+      host.querySelector('#stk-retry').addEventListener('click', () => { st.error = null; rerender(); });
     } else {
       host.innerHTML = '<div class="chart-empty">載入走勢中…</div>';
       if (st.loading !== key) {
@@ -1975,7 +1959,7 @@ App.Views = (function () {
         fetchSymbolSeries(sym)
           .then(data => { st.key = key; st.data = data; st.error = null; })
           .catch(e => { console.error(e); st.error = key; })
-          .then(() => { st.loading = null; if (as.detailSym === sym && root.querySelector('#stk-host')) stockDetail(root, sym); });
+          .then(() => { st.loading = null; if (ctx.get() === sym && root.querySelector('#stk-host')) rerender(); });
       }
     }
   }
