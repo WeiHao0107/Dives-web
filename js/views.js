@@ -869,7 +869,7 @@ App.Views = (function () {
     const body = `
       <div class="flt-grp"><div class="flt-lbl">類型</div>${segRow('flt-type', tType, [['all', '全部'], ['buy', '買入'], ['sell', '賣出'], ['div', '股利']])}</div>
       <div class="flt-grp"><div class="flt-lbl">市場</div>${segRow('flt-mkt', tMkt, [['all', '全部'], ['tw', '台股'], ['us', '美股'], ['crypto', '加密']])}</div>
-      <div class="flt-grp"><div class="flt-lbl">時間區間</div><div class="range-dates"><input type="date" class="input" id="flt-from" value="${hist.from || ''}"><span>至</span><input type="date" class="input" id="flt-to" value="${hist.to || ''}"></div></div>`;
+      <div class="flt-grp"><div class="flt-lbl">時間區間</div><div class="range-dates"><input type="date" class="input" id="flt-from" value="${hist.from || ''}"><span>至</span><input type="date" class="input" id="flt-to" value="${hist.to || U.isoDate()}"></div></div>`;
     const ov = UI.openSheet('篩選', body, `<button class="btn btn-ghost" id="flt-reset">重設</button><button class="btn btn-primary" id="flt-apply">套用</button>`);
     const bindSeg = (id, setv) => ov.querySelectorAll(`#${id} .seg-btn`).forEach(b => b.addEventListener('click', () => {
       setv(b.dataset.v);
@@ -885,6 +885,7 @@ App.Views = (function () {
       hist.type = tType; hist.txFilter = tMkt;
       let a = ov.querySelector('#flt-from').value || null, b = ov.querySelector('#flt-to').value || null;
       if (a && b && a > b) { const x = a; a = b; b = x; }
+      if (b && b >= U.isoDate()) b = null;   // 結束日預設今天：選今天＝不設上限（明天也照樣到當天）
       hist.from = a; hist.to = b;
       UI.closeSheet(); histTx(fixedEl, scrollEl);
     });
@@ -1235,7 +1236,7 @@ App.Views = (function () {
   function rangeControlHtml(spec, id) {
     const RG = [['all', '全部'], ['ytd', '年初至今'], ['custom', '選擇日期']];
     let h = `<div class="seg seg-wide" id="${id}-range">${RG.map(([v, l]) => `<button class="seg-btn ${spec.range === v ? 'active' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
-    if (spec.range === 'custom') h += `<div class="range-dates"><input type="date" class="input" id="${id}-from" value="${spec.from || ''}"><span>至</span><input type="date" class="input" id="${id}-to" value="${spec.to || ''}"></div>`;
+    if (spec.range === 'custom') h += `<div class="range-dates"><input type="date" class="input" id="${id}-from" value="${spec.from || ''}" max="${U.isoDate()}"><span>至</span><input type="date" class="input" id="${id}-to" value="${spec.to || U.isoDate()}"></div>`;
     return h;
   }
   // 年份選擇（供漲幅圖：選年份、月刻度）
@@ -1246,11 +1247,11 @@ App.Views = (function () {
   function bindYearControl(root, spec, id, rerender) {
     root.querySelectorAll(`#${id}-year .chip`).forEach(b => b.addEventListener('click', () => { spec.year = +b.dataset.v; rerender(); }));
   }
-  // spec 為共用的 chartRange；任何變更都持久化 → 關閉重開仍保留、所有走勢圖共用同一區間
+  // spec 為共用的 chartRange；範圍與起始日會保存、所有走勢圖共用同一區間。結束日預設今天（spec.to = null），不保存
   function bindRangeControl(root, spec, id, dates, rerender, onDate) {
     root.querySelectorAll(`#${id}-range .seg-btn`).forEach(b => b.addEventListener('click', () => {
       spec.range = b.dataset.v;
-      if (spec.range === 'custom' && dates.length) { if (!spec.from) spec.from = dates[0]; if (!spec.to) spec.to = dates[dates.length - 1]; }
+      if (spec.range === 'custom' && dates.length && !spec.from) spec.from = dates[0];   // 結束日不預填：null＝到今天
       S.setChartRange(spec);
       rerender();
     }));
@@ -1258,9 +1259,10 @@ App.Views = (function () {
     // 未提供 onDate 時退回整頁重繪。
     const f = root.querySelector(`#${id}-from`), t = root.querySelector(`#${id}-to`);
     const apply = () => {
-      let a = f.value || spec.from, b = t.value || spec.to;
+      const today = U.isoDate();
+      let a = f.value || spec.from, b = t.value || today;
       if (a && b && a > b) { const tmp = a; a = b; b = tmp; f.value = a; t.value = b; } // 起訖顛倒自動對調
-      spec.from = a; spec.to = b;
+      spec.from = a; spec.to = b && b < today ? b : null;   // 選今天（或之後）＝跟著今天走
       S.setChartRange(spec);
       (onDate || rerender)();
     };
