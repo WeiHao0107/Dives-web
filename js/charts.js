@@ -536,5 +536,89 @@ App.Charts = (function () {
     attachInteractive(container, svgEl, cursor, tip, handle);
   }
 
-  return { trend, bars, reportColumn, lineChart, barChart, dualBars, niceTicks, niceRange, axisLabels, extremes };
+  /* ---- 兩線比較圖（個股頁）：主線 a（市值／股價）對 成本線 b（成本／均價，階梯虛線）----
+   * 兩線之間上色：a 在 b 上方＝賺（紅）、下方＝賠（綠）；買進／賣出各一個圓點
+   * points: [{ date:'YYYY-MM-DD', a:number, b:number|null }]（b 為 null＝當時沒有持股，成本線中斷）
+   * opts: { aLabel, bLabel, color, valueFmt, height, xLabels:[{idx,label}], marks:[{idx, type:'BUY'|'SELL', text}] }
+   */
+  let cmpSeq = 0;
+  function compareChart(container, points, opts) {
+    container.innerHTML = '';
+    if (!points || points.length < 2) { container.innerHTML = '<div class="chart-empty">資料不足，還畫不出走勢</div>'; return; }
+    opts = opts || {};
+    const valueFmt = opts.valueFmt || (v => App.Util.fmtKMBB(v));
+    const color = opts.color || '#6D5FD5', GAIN = '#E53935', LOSS = '#43A047';
+    const H = opts.height || 210, W = container.clientWidth || 340;
+    const padL = 46, padR = 10, padT = 12, padB = 22;
+    const chartW = W - padL - padR, chartH = H - padT - padB, n = points.length;
+    let lo = Infinity, hi = -Infinity;
+    for (const p of points) { lo = Math.min(lo, p.a); hi = Math.max(hi, p.a); if (p.b != null) { lo = Math.min(lo, p.b); hi = Math.max(hi, p.b); } }
+    const ticks = niceRange(lo, hi, 4), labels = axisLabels(ticks);
+    const yLo = ticks[0], yHi = ticks[ticks.length - 1], ySpan = Math.max(yHi - yLo, 1e-9);
+    const xAt = i => padL + (i / (n - 1)) * chartW;
+    const yAt = v => padT + (1 - (v - yLo) / ySpan) * chartH;
+    const f = v => v.toFixed(1);
+    const bOf = i => points[i].b != null ? points[i].b : points[i].a;   // 沒持股的區段：成本線貼著主線（中間不上色）
+
+    const aPath = points.map((p, i) => (i ? 'L' : 'M') + f(xAt(i)) + ',' + f(yAt(p.a))).join(' ');
+    // 成本線：階梯（先橫後直）；null 區段斷開
+    let bPath = '', pen = false;
+    points.forEach((p, i) => {
+      if (p.b == null) { pen = false; return; }
+      if (!pen) { bPath += ` M${f(xAt(i))},${f(yAt(p.b))}`; pen = true; }
+      else bPath += ` L${f(xAt(i))},${f(yAt(points[i - 1].b != null ? points[i - 1].b : p.b))} L${f(xAt(i))},${f(yAt(p.b))}`;
+    });
+    // 上色用的成本邊界（含 null 區段，連續）與兩線之間的面積
+    let bEdge = `M${f(xAt(0))},${f(yAt(bOf(0)))}`;
+    for (let i = 1; i < n; i++) bEdge += ` L${f(xAt(i))},${f(yAt(bOf(i - 1)))} L${f(xAt(i))},${f(yAt(bOf(i)))}`;
+    let back = '';
+    for (let i = n - 1; i >= 1; i--) back += ` L${f(xAt(i))},${f(yAt(bOf(i)))} L${f(xAt(i))},${f(yAt(bOf(i - 1)))}`;
+    const area = `${aPath}${back} L${f(xAt(0))},${f(yAt(bOf(0)))} Z`;
+    const id = 'cmp' + (++cmpSeq);
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" class="trend-svg">`;
+    svg += `<defs><clipPath id="${id}u"><path d="${bEdge} L${f(xAt(n - 1))},0 L${f(xAt(0))},0 Z"/></clipPath><clipPath id="${id}d"><path d="${bEdge} L${f(xAt(n - 1))},${H} L${f(xAt(0))},${H} Z"/></clipPath></defs>`;
+    ticks.forEach((t, ti) => {
+      const y = yAt(t);
+      svg += `<line x1="${padL}" y1="${y}" x2="${padL + chartW}" y2="${y}" stroke="${t === 0 ? '#d6d3d1' : '#eee'}" stroke-width="1" ${t === 0 ? '' : 'stroke-dasharray="3 3"'}/>`;
+      svg += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#78716c">${labels[ti]}</text>`;
+    });
+    svg += `<path d="${area}" fill="${GAIN}" opacity="0.13" clip-path="url(#${id}u)"/><path d="${area}" fill="${LOSS}" opacity="0.17" clip-path="url(#${id}d)"/>`;
+    if (bPath) svg += `<path d="${bPath}" fill="none" stroke="#78716c" stroke-width="1.5" stroke-dasharray="5 3"/>`;
+    svg += `<path d="${aPath}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
+    for (const m of opts.marks || []) {
+      if (m.idx == null || m.idx < 0 || m.idx >= n) continue;
+      svg += `<circle cx="${f(xAt(m.idx))}" cy="${f(yAt(points[m.idx].a))}" r="4" style="fill:var(--card)" stroke="${m.type === 'SELL' ? LOSS : GAIN}" stroke-width="2"/>`;
+    }
+    svg += `<circle cx="${f(xAt(n - 1))}" cy="${f(yAt(points[n - 1].a))}" r="3.2" fill="${color}"/>`;
+    if (opts.xLabels) for (const e of opts.xLabels)
+      svg += `<text x="${xAt(e.idx)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#78716c">${e.label}</text>`;
+    svg += `<line class="cursor-line" x1="0" y1="${padT}" x2="0" y2="${padT + chartH}" stroke="#a8a29e" stroke-width="1" stroke-dasharray="3 2" visibility="hidden"/></svg>`;
+    container.innerHTML = svg;
+
+    const svgEl = container.querySelector('svg'), cursor = container.querySelector('.cursor-line');
+    const tip = document.createElement('div'); tip.className = 'chart-tip'; tip.style.display = 'none';
+    container.appendChild(tip);
+    const marksAt = {};
+    for (const m of opts.marks || []) (marksAt[m.idx] = marksAt[m.idx] || []).push(m);
+    function handle(clientX) {
+      const rect = svgEl.getBoundingClientRect();
+      const sx = (clientX - rect.left) / rect.width * W;
+      const idx = Math.max(0, Math.min(n - 1, Math.round((sx - padL) / (chartW || 1) * (n - 1))));
+      const p = points[idx];
+      cursor.setAttribute('x1', xAt(idx)); cursor.setAttribute('x2', xAt(idx)); cursor.setAttribute('visibility', 'visible');
+      const diff = p.b != null ? p.a - p.b : null;
+      tip.innerHTML = `<div class="tip-date">${p.date}</div>`
+        + `<div><i style="background:${color}"></i>${opts.aLabel || ''} <b>${valueFmt(p.a)}</b></div>`
+        + (p.b != null ? `<div><i style="background:#78716c"></i>${opts.bLabel || ''} <b>${valueFmt(p.b)}</b></div>` : '')
+        + (diff != null && p.b ? `<div style="color:${diff >= 0 ? GAIN : LOSS}">${diff >= 0 ? '賺' : '賠'} <b>${(diff >= 0 ? '+' : '') + (diff / p.b * 100).toFixed(2)}%</b></div>` : '')
+        + (marksAt[idx] || []).map(m => `<div style="color:${m.type === 'SELL' ? LOSS : GAIN}">${m.text}</div>`).join('');
+      tip.style.display = 'block';
+      const tipW = tip.offsetWidth || 132, cxPx = xAt(idx) / W * rect.width;
+      tip.style.left = Math.min(Math.max(cxPx - tipW / 2, 4), Math.max(4, rect.width - tipW - 4)) + 'px'; tip.style.top = '4px';
+    }
+    attachInteractive(container, svgEl, cursor, tip, handle);
+  }
+
+  return { trend, bars, reportColumn, lineChart, compareChart, barChart, dualBars, niceTicks, niceRange, axisLabels, extremes };
 })();

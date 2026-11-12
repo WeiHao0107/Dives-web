@@ -1196,7 +1196,8 @@ App.Views = (function () {
   // 手風琴：一次只展開一類（cash|invest|liab）；detailGroup = 群組詳情頁
   //   nw/gt 僅保留各自的 metric（走勢/漲幅/投入）與 year（漲幅選年）；時間區間改用共用的 chartRange
   const as = { openCat: 'invest', detailGroup: null, groupAllocSel: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
-    groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null };
+    groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null,
+    detailSym: null, stk: { mode: 'value', key: null, data: null, loading: null, error: null } };   // 個股頁：mode＝value(市值與成本)｜price(股價與均價)
   // 所有走勢圖共用的「選擇日期」區間（持久化：關閉程式後重開仍保留同一起始/結束日）
   const chartRange = S.getChartRange();
 
@@ -1267,7 +1268,7 @@ App.Views = (function () {
     if (t) t.addEventListener('change', apply);
   }
   // 點「資產」tab 時回到資產首頁（退出群組/走勢/淨資產詳情）
-  function resetAssetsNav() { as.detailGroup = null; as.groupTrend = null; as.catChart = null; as.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
+  function resetAssetsNav() { as.detailSym = null; as.detailGroup = null; as.groupTrend = null; as.catChart = null; as.detailFut = false; if (App.ViewsFutures && App.ViewsFutures.reset) App.ViewsFutures.reset(); }
   const AS_PURPLE = '#6D5FD5';
 
   function mvTwdOf(p, rate) {
@@ -1297,6 +1298,7 @@ App.Views = (function () {
   function assets(root) {
     if (as.catChart) return metricChartPage(root, as.catChart, () => { as.catChart = null; assets(root); });
     if (as.groupTrend) return groupTrendPage(root, as.groupTrend);
+    if (as.detailSym) return stockDetail(root, as.detailSym);   // 個股頁（從群組頁或資產頁點進來；返回後回到原本那一頁）
     if (as.detailGroup) return groupDetail(root, as.detailGroup);
     if (as.detailFut) return App.ViewsFutures.page(root, () => { as.detailFut = false; assets(root); });
     const rate = S.getFxRate() || 31.5;
@@ -1529,8 +1531,7 @@ App.Views = (function () {
     root.querySelectorAll('.as-grow').forEach(g => g.addEventListener('click', () => {
       as.detailGroup = g.dataset.gid; assets(root);
     }));
-    root.querySelectorAll('.as-row.member').forEach(r => r.addEventListener('click', () =>
-      openGroupAssign(r.dataset.sym, () => assets(root))));
+    root.querySelectorAll('.as-row.member').forEach(r => r.addEventListener('click', () => { as.detailSym = r.dataset.sym; assets(root); }));
     maskAmounts(root);
     if (athNow) athBurstOnce();
   }
@@ -1818,8 +1819,142 @@ App.Views = (function () {
     root.querySelector('.gd-menu').addEventListener('click', () => openGroupMenu(gid, () => assets(root)));
     root.querySelector('.gd-plus').addEventListener('click', () =>
       openTxForm(null, null, { onAdded: sym => { const m = S.getGroupMap(); m[sym] = gid; S.setGroupMap(m); if (App.Sync) App.Sync.markDirty(); } }));
-    root.querySelectorAll('.gd-row').forEach(r => r.addEventListener('click', () =>
-      openGroupAssign(r.dataset.sym, () => assets(root))));
+    root.querySelectorAll('.gd-row').forEach(r => r.addEventListener('click', () => { as.detailSym = r.dataset.sym; assets(root); }));
+  }
+
+  /* ---- 個股頁：損益、走勢對成本、交易紀錄 ---- */
+  // 抓這一檔的歷史價並算出每日走勢；抓失敗就丟錯（不拿成本估算當成真的走勢）
+  async function fetchSymbolSeries(sym) {
+    const txs = S.getTransactions().filter(t => t.symbol === sym);
+    if (!txs.length) return { points: [], trades: [] };
+    const meta = S.metaMap()[sym];
+    const mk = U.normalizeMarketKey((meta && meta.market) || U.guessMarketBySymbol(sym));
+    const firstDate = U.isoDate(new Date(Math.min(...txs.map(t => t.time))));
+    await App.Api.fetchFx();
+    const h = await (mk === U.Market.us ? App.Api.fetchUsHistory([sym], firstDate)
+      : mk === U.Market.crypto ? App.Api.fetchCryptoHistory([sym], firstDate) : App.Api.fetchTwHistory([sym], firstDate));
+    if ((h._failed || []).length) throw new Error('歷史價格抓取失敗：' + sym);
+    return C.symbolSeries(sym, h, S.getFxRate());
+  }
+  // 右上角選單：新增交易／分類群組
+  function openStockMenu(sym, onDone) {
+    const gid = S.getGroupMap()[sym], g = gid ? S.getGroups().find(x => x.id === gid) : null;
+    const item = (id, icon, title, sub) => `<button class="stk-mi" id="${id}"><span class="stk-mic">${icon}</span><span class="stk-mit"><b>${title}</b><small>${sub}</small></span><i>›</i></button>`;
+    const folder = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/></svg>';
+    const plus = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>';
+    const ov = UI.openSheet(esc(sym), `<div class="stk-menu">${item('stk-add', plus, '新增交易', '買進或賣出這一檔')}${item('stk-grp', folder, '分類群組', g ? '目前：' + esc(g.name) : '目前：未分組')}</div>`, '');
+    ov.querySelector('#stk-add').addEventListener('click', () => { UI.closeSheet(); openTxForm(null, sym); });
+    ov.querySelector('#stk-grp').addEventListener('click', () => openGroupAssign(sym, onDone));
+  }
+  function stockDetail(root, sym) {
+    const txs = S.getTransactions().filter(t => t.symbol === sym).sort((a, b) => b.time - a.time);
+    if (!txs.length) { as.detailSym = null; return assets(root); }   // 這檔的交易被刪光了
+    const rate = S.getFxRate() || 31.5;
+    const meta = S.metaMap()[sym] || {};
+    const mk = U.normalizeMarketKey(meta.market || U.guessMarketBySymbol(sym));
+    const isUsd = mk === U.Market.us || mk === U.Market.crypto, conv = isUsd ? rate : 1, cur = isUsd ? '$' : '';
+    const allPos = C.buildPositions();
+    const p = allPos.find(x => x.symbol === sym);                      // 已賣光 → undefined
+    const mv = p ? mvTwdOf(p, rate) : 0;
+    const gp = C.groupPnl([sym], allPos, rate);
+    // 今日漲跌（與資產頁同一算法：台股日模式下未開盤的市場計 0；今天賣光的也算）
+    const gated = S.getDayMode() === 'twday' && (mk === U.Market.us ? !U.usCountsTowardToday() : !isUsd && !U.twCountsTowardToday());
+    const closed = (allPos.closedToday || []).find(c => c.symbol === sym);
+    const day = gated ? 0 : (((p && p.dayPnl) || 0) + ((closed && closed.dayPnl) || 0)) * conv;
+    const prev = mv - day, dayPct = Math.abs(prev) > 1e-9 ? day / Math.abs(prev) * 100 : 0;
+    const compact = x => Math.abs(x) < 0.5 ? '0' : U.fmtBannerSigned(x);
+    const colorOf = x => UI.pnlColor(Math.abs(x) < 0.5 ? 0 : x);
+    const bigCls = mv >= 1e9 ? ' xs' : mv >= 1e8 ? ' sm' : '';
+    const name = meta.alias || (meta.name && meta.name !== sym ? meta.name : '');
+    const fact = (k, val) => `<div><span>${k}</span><b>${val}</b></div>`;
+    const hasReal = Math.abs(gp.realizedTwd) >= 0.5;
+
+    const topHtml = `<div class="gd-head">
+      <button class="gd-back" aria-label="返回">‹</button>
+      <div class="gd-title">${esc(sym)}${name ? ` <em>${esc(name)}</em>` : ''}</div>
+      <div class="gd-actions"><button id="stk-more" aria-label="更多：新增交易、分類群組">⋯</button></div>
+    </div>
+    <div class="gd-hero">
+      <div class="gd-blk">
+        <div class="gd-cap">市值 (TWD)</div>
+        <div class="gd-big${bigCls}">${U.fmtWhole(mv)}</div>
+        <div class="gd-s" style="color:${UI.pnlColor(day)}">${day > 0 ? '▲' : day < 0 ? '▼' : '–'} ${U.fmtWhole(Math.abs(day))} (${Math.abs(dayPct).toFixed(2)}%) <span>今日</span></div>
+      </div>
+      <div class="gd-blk r">
+        <div class="gd-cap">目前損益</div>
+        <div class="gd-mid" style="color:${colorOf(gp.unrealizedTwd)}">${compact(gp.unrealizedTwd)}</div>
+        <div class="gd-s" style="color:${colorOf(gp.unrealizedTwd)}">${gp.unrealizedPct != null ? U.fmtPct(gp.unrealizedPct) : ''}</div>
+      </div>
+    </div>`;
+
+    const rzOf = C.realizedByTxId();
+    const txRows = txs.map(t => {
+      const d = U.isoDate(new Date(t.time));
+      if (t.type === 'STOCK_DIV') return `<button class="stk-tx" data-id="${t.id}"><span class="tx-type evt">配</span><span class="stk-txm"><b>配股 +${U.formatShares(t.shares)}${shareUnit(mk)}</b><small>${d}</small></span><em></em></button>`;
+      const buy = t.type === 'BUY', rz = !buy ? rzOf[t.id] : null;
+      const right = buy ? `NT$ ${U.fmtBanner((t.shares * t.price + (t.fee || 0)) * conv)}`
+        : rz ? `<span style="color:${UI.pnlColor(rz.realizedPnl)}">${U.fmtBannerSigned(rz.realizedPnl * conv)}</span>` : `NT$ ${U.fmtBanner(t.shares * t.price * conv)}`;
+      return `<button class="stk-tx" data-id="${t.id}"><span class="tx-type ${buy ? 'buy' : 'sell'}">${buy ? '買' : '賣'}</span><span class="stk-txm"><b>${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}</b><small>${d}</small></span><em>${right}</em></button>`;
+    }).join('');
+
+    const listHtml = `
+      <div class="card stk-facts">
+        ${fact('持有', p ? U.formatShares(p.shares) + shareUnit(mk) : '0')}${fact('均價', p ? cur + U.formatPrice(p.avgCost) : '--')}${fact('現價', p && p.lastPrice != null ? cur + U.formatPrice(p.lastPrice) : '--')}${fact('成本', U.fmtBanner(gp.costTwd))}
+      </div>
+      ${hasReal ? `<div class="gd-sub"><span>已實現 <b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></span><span>含已實現合計 <b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span></div>` : ''}
+      <div class="card stk-chart">
+        <div class="seg seg-wide" id="stk-mode"><button class="seg-btn ${as.stk.mode === 'value' ? 'active' : ''}" data-v="value">市值與成本</button><button class="seg-btn ${as.stk.mode === 'price' ? 'active' : ''}" data-v="price">股價與均價</button></div>
+        <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>買進</span><span><i class="d2"></i>賣出</span></div>
+        <div class="stk-host" id="stk-host"></div>
+        <div class="stk-hint">兩條線之間：紅色是賺、綠色是賠</div>
+      </div>
+      <div class="gd-lh"><span>交易紀錄 ${txs.length} 筆</span></div>
+      <div class="card stk-txs">${txRows}</div>`;
+
+    root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${listHtml}</div></div>`;
+    const rerender = () => assets(root);
+    root.querySelector('.gd-back').addEventListener('click', () => { as.detailSym = null; assets(root); });
+    root.querySelector('#stk-more').addEventListener('click', () => openStockMenu(sym, rerender));
+    root.querySelectorAll('#stk-mode .seg-btn').forEach(b => b.addEventListener('click', () => { as.stk.mode = b.dataset.v; stockDetail(root, sym); }));
+    root.querySelectorAll('.stk-tx').forEach(b => b.addEventListener('click', () => {
+      const tx = S.getTransactions().find(t => t.id === b.dataset.id);
+      if (!tx) return;
+      if (tx.type === 'STOCK_DIV') openDividendForm('stock', { id: tx.id, symbol: tx.symbol, name: meta.name || tx.symbol, market: meta.market, shares: tx.shares, date: U.isoDate(new Date(tx.time)) });
+      else openTxForm(tx);
+    }));
+
+    // 走勢：有快取直接畫；否則抓歷史價（抓完若還在這一頁就重畫）
+    const host = root.querySelector('#stk-host');
+    const key = sym + '|' + txs.length + '|' + txs.reduce((s, t) => s + t.shares * t.price, 0).toFixed(2) + '|' + U.isoDate();
+    const st = as.stk;
+    const draw = data => {
+      const pts = data.points, n = pts.length;
+      const value = st.mode === 'value';
+      const series = pts.map(q => value ? { date: q.date, a: q.mv, b: q.shares > 0 ? q.cost : null } : { date: q.date, a: q.price, b: q.avgCost });
+      // X 軸標籤：平均取 5 個；跨年帶年份
+      const multiYear = n > 0 && pts[0].date.slice(0, 4) !== pts[n - 1].date.slice(0, 4);
+      const lab = iso => multiYear ? iso.slice(2, 4) + '/' + (+iso.slice(5, 7)) : (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10));
+      const xLabels = n < 2 ? [] : [0, 1, 2, 3, 4].map(k => Math.round(k * (n - 1) / 4)).filter((x, i, a) => a.indexOf(x) === i).map(idx => ({ idx, label: lab(pts[idx].date) }));
+      App.Charts.compareChart(host, series, {
+        aLabel: value ? '市值' : '股價', bLabel: value ? '成本' : '均價', height: 220, xLabels,
+        valueFmt: x => value ? 'NT$ ' + U.fmtKMBB(x) : cur + U.formatPrice(x),
+        marks: data.trades.map(t => ({ idx: t.idx, type: t.type, text: `${t.type === 'BUY' ? '買' : '賣'} ${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}` })),
+      });
+    };
+    if (st.key === key && st.data) draw(st.data);
+    else if (st.error === key) {
+      host.innerHTML = '<div class="chart-empty">走勢載入失敗<br><button class="cal-retry" id="stk-retry">點此重試</button></div>';
+      host.querySelector('#stk-retry').addEventListener('click', () => { st.error = null; stockDetail(root, sym); });
+    } else {
+      host.innerHTML = '<div class="chart-empty">載入走勢中…</div>';
+      if (st.loading !== key) {
+        st.loading = key;
+        fetchSymbolSeries(sym)
+          .then(data => { st.key = key; st.data = data; st.error = null; })
+          .catch(e => { console.error(e); st.error = key; })
+          .then(() => { st.loading = null; if (as.detailSym === sym && root.querySelector('#stk-host')) stockDetail(root, sym); });
+      }
+    }
   }
 
   // 群組走勢頁：折線（市值走勢）/ 長條（漲幅），X 軸 天/週/月/年

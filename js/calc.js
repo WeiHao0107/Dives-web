@@ -890,6 +890,39 @@ App.Calc = (function () {
     const b = prevBase > 0.5 ? prevBase : curBase > 0.5 ? curBase - v : 0;
     return b > 0.5 ? v / b * 100 : null;
   }
+  // 單一標的的每日走勢（個股頁）：從第一筆交易到今天，每天一點
+  //   points：{ date, price(原幣收盤；沒有歷史價 → 均價), shares, avgCost(原幣；沒持股 → null), mv, cost }
+  //           mv／cost 為台幣（美股／加密 × 目前匯率）；cost = 目前持股的成本（賣出後跟著減少）
+  //   trades：{ date, idx(對應 points 的位置), type:'BUY'|'SELL', shares, price }（配股不列）
+  //   hist：{ 代號: [{date, close}] }（已升序）
+  function symbolSeries(symbol, hist, fxRate) {
+    const txs = S.getTransactions().filter(t => t.symbol === symbol).sort((a, b) => a.time - b.time);
+    if (!txs.length) return { points: [], trades: [] };
+    const rate = fxRate || S.getFxRate() || 31.5;
+    const meta = S.metaMap()[symbol];
+    const mk = U.normalizeMarketKey(meta ? meta.market : U.guessMarketBySymbol(symbol));
+    const conv = mk === U.Market.us || mk === U.Market.crypto ? rate : 1;
+    const txDate = t => U.isoDate(new Date(t.time));
+    const arr = (hist && hist[symbol]) || [];
+    const start = new Date(txDate(txs[0]) + 'T00:00:00+08:00'), end = new Date(U.isoDate() + 'T00:00:00+08:00');
+    const points = [], idxOf = {}, upto = [];
+    let ptr = 0, last = null, ti = 0;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const ds = U.isoDate(d);
+      while (ptr < arr.length && arr[ptr].date <= ds) { last = arr[ptr].close; ptr++; }
+      while (ti < txs.length && txDate(txs[ti]) <= ds) upto.push(txs[ti++]);
+      const { shares, avgCost } = computeAvgCostPosition(upto);
+      const has = shares > 1e-9;
+      const price = last != null ? last : (has ? avgCost : upto[upto.length - 1].price);
+      idxOf[ds] = points.length;
+      points.push({ date: ds, price, shares: has ? shares : 0, avgCost: has ? avgCost : null, mv: has ? shares * price * conv : 0, cost: has ? shares * avgCost * conv : 0 });
+    }
+    const trades = txs.filter(t => t.type === 'BUY' || t.type === 'SELL')
+      .map(t => ({ date: txDate(t), idx: idxOf[txDate(t)], type: t.type, shares: t.shares, price: t.price }))
+      .filter(t => t.idx != null);
+    return { points, trades };
+  }
+
   // 群組損益（TWD）：未實現 = 成員目前持倉的 市值 − 成本；已實現 = 成員歷來賣出的損益
   //   已實現含「已經賣光、但仍歸在這個群組」的標的；不含股息。美股／加密以目前匯率換算
   function groupPnl(symbols, positions, fxRate) {
@@ -1305,7 +1338,7 @@ App.Calc = (function () {
     computeAvgCostPosition, buildPositions, buildSummary,
     addTransaction, updateTransaction, deleteTransaction, recomputeRealized, realizedByTxId, firstOversell,
     addStockDividend, dividendsTotalTwd, dividendsBetween, dividendsUpTo, addDividend, updateDividend, deleteDividend, sharesHeldBefore,
-    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, calendarPnl, groupCalendarPnl, groupPnl, capitalBase, athInfo, txCashDelta, cashLiabTwd,
+    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, calendarPnl, groupCalendarPnl, groupPnl, symbolSeries, capitalBase, athInfo, txCashDelta, cashLiabTwd,
     netWorthBuckets, findAbsurdFees, repairFees, buildGroupSeries, tradingStats, scopedStats, xirrRate, buildXirrFlows, portfolioXirr,
     recurringDueDates, isoAddDays, priceOnOrBefore, planFee, applyLiabilityPayment, investedBetween, feesSummary,
   };

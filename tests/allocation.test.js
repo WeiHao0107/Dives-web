@@ -83,3 +83,32 @@ test('groupPnl：群組的未實現、已實現（含已賣光的成員）與合
   assert.equal(r.unrealizedPct, 0);
   assert.deepEqual(C.groupPnl([]), { costTwd: 0, mvTwd: 0, unrealizedTwd: 0, realizedTwd: 0, totalTwd: 0, unrealizedPct: null });
 });
+
+test('symbolSeries：個股每日走勢——市值、持股成本（賣出後減少）、均價，與買賣標記', () => {
+  resetStore();
+  const S = App.Store, C = App.Calc, U = App.Util;
+  const day = n => { const d = new Date(Date.now() - n * 86400000); return U.isoDate(d); };
+  const T = iso => Date.parse(iso + 'T12:00:00+08:00');
+  S.setFxRate(30);
+  C.addTransaction({ symbolInput: 'AAPL', type: 'BUY', shares: 10, price: 100, fee: 0, market: 'us', time: T(day(4)) });
+  C.addTransaction({ symbolInput: 'AAPL', type: 'BUY', shares: 10, price: 120, fee: 0, market: 'us', time: T(day(2)) });
+  C.addTransaction({ symbolInput: 'AAPL', type: 'SELL', shares: 5, price: 130, fee: 0, market: 'us', time: T(day(1)) });
+  const hist = { AAPL: [{ date: day(4), close: 101 }, { date: day(3), close: 105 }, { date: day(2), close: 118 }, { date: day(1), close: 131 }] };
+  const r = C.symbolSeries('AAPL', hist);
+  assert.equal(r.points.length, 5);                                   // 第一筆交易日 → 今天，每天一點
+  assert.deepEqual(r.points.map(p => p.date), [day(4), day(3), day(2), day(1), day(0)]);
+  assert.deepEqual(r.points.map(p => p.shares), [10, 10, 20, 15, 15]);
+  assert.deepEqual(r.points.map(p => p.price), [101, 105, 118, 131, 131]);   // 今天沒有收盤價 → 沿用前一日
+  assert.deepEqual(r.points.map(p => p.avgCost), [100, 100, 110, 110, 110]);
+  assert.deepEqual(r.points.map(p => p.mv), [10 * 101 * 30, 10 * 105 * 30, 20 * 118 * 30, 15 * 131 * 30, 15 * 131 * 30]);
+  assert.deepEqual(r.points.map(p => p.cost), [30000, 30000, 66000, 49500, 49500]);   // 賣 5 股後成本跟著減少
+  assert.deepEqual(r.trades.map(t => [t.idx, t.type, t.shares, t.price]), [[0, 'BUY', 10, 100], [2, 'BUY', 10, 120], [3, 'SELL', 5, 130]]);
+  assert.deepEqual(C.symbolSeries('NOPE', {}), { points: [], trades: [] });
+  // 全部賣光 → 之後沒有持股：均價為 null、市值與成本為 0
+  C.addTransaction({ symbolInput: 'AAPL', type: 'SELL', shares: 15, price: 140, fee: 0, market: 'us', time: T(day(0)) });
+  const last = C.symbolSeries('AAPL', hist).points.pop();
+  assert.deepEqual([last.shares, last.avgCost, last.mv, last.cost], [0, null, 0, 0]);
+  // 沒有歷史價 → 用均價估（市值＝成本）
+  const noHist = C.symbolSeries('AAPL', {}).points[0];
+  assert.equal(noHist.mv, noHist.cost);
+});

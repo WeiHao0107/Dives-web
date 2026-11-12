@@ -594,6 +594,41 @@ input, select { font-family: inherit; font-size: 15px; }
 .gd-sub button:active { opacity: 0.55; }
 .gd-sub b { font-size: 14px; font-weight: 800; margin-left: 3px; font-variant-numeric: tabular-nums; }
 .gd-sub i { font-style: normal; color: var(--chev); margin-left: 1px; }
+/* ---- 個股頁 ---- */
+.gd-title em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--sub); margin-left: 3px; }
+.stk-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 12px 0 10px; padding: 10px 2px; }
+.stk-facts div { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.stk-facts div + div { border-left: 1px solid var(--divider); }
+.stk-facts span { font-size: 11px; color: var(--sub); }
+.stk-facts b { font-size: 13.5px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.stk-chart { padding: 12px 10px 8px; margin-bottom: 12px; }
+.stk-chart .seg { display: flex; margin: 0 2px 10px; }
+.stk-lg { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 4px 6px; font-size: 11.5px; color: var(--sub); }
+.stk-lg span { display: inline-flex; align-items: center; gap: 5px; }
+.stk-lg .l1 { width: 14px; height: 2.5px; border-radius: 2px; background: var(--accent); }
+.stk-lg .l2 { width: 14px; height: 0; border-top: 2px dashed var(--sub); }
+.stk-lg .d1, .stk-lg .d2 { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--gain); background: var(--card); box-sizing: border-box; }
+.stk-lg .d2 { border-color: var(--loss); }
+.stk-host { position: relative; min-height: 220px; }
+.stk-host .chart-empty { padding: 86px 0; text-align: center; font-size: 13px; color: var(--sub); line-height: 1.9; }
+.stk-hint { font-size: 11px; color: var(--sub); text-align: center; padding-top: 2px; }
+.stk-txs { overflow: hidden; margin-bottom: 14px; padding: 0; }
+.stk-tx { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 13px; border-top: 1px solid var(--divider); text-align: left; color: var(--text); font: inherit; -webkit-tap-highlight-color: transparent; }
+.stk-tx:first-child { border-top: none; }
+.stk-tx:active { background: var(--soft); }
+.stk-txm { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.stk-txm b { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.stk-txm small { font-size: 11px; color: var(--sub); font-variant-numeric: tabular-nums; }
+.stk-tx em { flex: none; font-style: normal; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stk-menu { display: flex; flex-direction: column; }
+.stk-mi { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 2px; border-top: 1px solid var(--divider); text-align: left; color: var(--text); font: inherit; -webkit-tap-highlight-color: transparent; }
+.stk-mi:first-child { border-top: none; }
+.stk-mi:active { background: var(--soft); }
+.stk-mic { flex: none; width: 36px; height: 36px; border-radius: 11px; background: var(--accent-soft); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; }
+.stk-mit { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.stk-mit b { font-size: 15px; }
+.stk-mit small { font-size: 12px; color: var(--sub); }
+.stk-mi i { flex: none; font-style: normal; font-size: 20px; color: var(--chev); }
 /* 收合／展開：只有圖示 */
 .gd-fold { display: flex; justify-content: center; align-items: center; width: 100%; height: 30px; margin: -4px 0 4px; color: var(--sub); -webkit-tap-highlight-color: transparent; }
 .gd-fold:active, .gd-mini:active { opacity: 0.55; }
