@@ -838,10 +838,12 @@ App.Calc = (function () {
 
   // 報表月曆：某年月各日損益（TWD）。cat: all(含息) | tw | us | crypto | fut | div
   //   快照類＝當日累計 − 前一筆快照（跨月以上月最後一筆為基準）；股息依入帳日（股利帳本）
-  //   回傳 { days: { 日: 金額 }, sum }；all = tw + us + crypto + fut + div
+  //   回傳 { days: { 日: 金額 }, pct: { 日: % }, sum }；all = tw + us + crypto + fut + div
+  //   比例 = 當日損益 ÷ 前一筆快照的部位（股票＝該市場市值、期貨＝權益數、總損益＝股票市值＋期貨權益數）；
+  //   前一筆沒有部位（當天才建倉）→ 改用「當日部位 − 當日損益」；仍無 → 不給比例。股息不算比例
   function calendarPnl(year, month, cat) {
     const ym = String(year) + '-' + String(month).padStart(2, '0');
-    const days = {}; let sum = 0;
+    const days = {}, pct = {}; let sum = 0;
     if (cat === 'div') {
       const rate = S.getFxRate() || 31.5;
       for (const d of S.getDividends()) {
@@ -849,7 +851,7 @@ App.Calc = (function () {
         const v = (d.amount || 0) * (_divIsUsd(d.symbol) ? rate : 1), k = +d.date.slice(8, 10);
         days[k] = (days[k] || 0) + v; sum += v;
       }
-      return { days, sum };
+      return { days, pct, sum };
     }
     const acc = {
       all: x => (x.totalPnl || 0) + dividendsUpTo(x.date),
@@ -858,18 +860,36 @@ App.Calc = (function () {
       crypto: x => x.cryptoTotalPnlTwd || 0,
       fut: x => (x.futRealizedPnl || 0) + (x.futUnrealizedTwd || 0),
     }[cat];
-    if (!acc) return { days, sum };
+    if (!acc) return { days, pct, sum };
+    const stockMv = x => x.totalMarketValueTwd != null ? x.totalMarketValueTwd : (x.marketValue || 0);
+    const base = {
+      all: x => stockMv(x) + (x.futEquityTwd || 0),
+      tw: x => x.twMarketValue || 0,
+      us: x => x.usMarketValueTwd || 0,
+      crypto: x => x.cryptoMarketValueTwd || 0,
+      fut: x => x.futEquityTwd || 0,
+    }[cat];
     const snaps = S.getSnapshots().slice().sort((a, b) => a.date < b.date ? -1 : 1);
     let prev = null;
     for (const x of snaps) {
       if (x.date.slice(0, 7) > ym) break;
-      if (x.date.slice(0, 7) === ym) { const v = acc(x) - (prev ? acc(prev) : 0); days[+x.date.slice(8, 10)] = v; sum += v; }
+      if (x.date.slice(0, 7) === ym) {
+        const v = acc(x) - (prev ? acc(prev) : 0), k = +x.date.slice(8, 10);
+        days[k] = v; sum += v;
+        const p = dayPct(v, prev ? base(prev) : 0, base(x));
+        if (p != null) pct[k] = p;
+      }
       prev = x;
     }
-    return { days, sum };
+    return { days, pct, sum };
+  }
+  // 當日比例：損益 ÷ 前一日部位；前一日無部位 → 當日部位 − 當日損益（≈ 當天投入）；都沒有 → null
+  function dayPct(v, prevBase, curBase) {
+    const b = prevBase > 0.5 ? prevBase : curBase > 0.5 ? curBase - v : 0;
+    return b > 0.5 ? v / b * 100 : null;
   }
   // 群組每日損益：series = buildGroupSeries(symbols, hist) 的結果 [{date, mv, cost}]
-  //   當日 = Δ(市值 − 成本) + 當日已實現（賣出後成本與市值同減，獲利落在已實現）；不含股息
+  //   當日 = Δ(市值 − 成本) + 當日已實現（賣出後成本與市值同減，獲利落在已實現）；不含股息。回傳 { days, pct, sum }
   function groupCalendarPnl(symbols, series, year, month, fxRate) {
     const ym = String(year) + '-' + String(month).padStart(2, '0');
     const set = new Set(symbols || []);
@@ -882,13 +902,18 @@ App.Calc = (function () {
       const d = U.isoDate(new Date(r.time));
       rzBy[d] = (rzBy[d] || 0) + (r.realizedPnl || 0) * (isUsd(r.symbol) ? rate : 1);
     }
-    const days = {}; let sum = 0, prev = 0;
+    const days = {}, pct = {}; let sum = 0, prev = 0, prevMv = 0;
     for (const p of series || []) {
       const cur = (p.mv || 0) - (p.cost || 0);
-      if (p.date.slice(0, 7) === ym) { const v = cur - prev + (rzBy[p.date] || 0); days[+p.date.slice(8, 10)] = v; sum += v; }
-      prev = cur;
+      if (p.date.slice(0, 7) === ym) {
+        const v = cur - prev + (rzBy[p.date] || 0), k = +p.date.slice(8, 10);
+        days[k] = v; sum += v;
+        const r = dayPct(v, prevMv, p.mv || 0);   // 比例 = 當日損益 ÷ 前一日群組市值
+        if (r != null) pct[k] = r;
+      }
+      prev = cur; prevMv = p.mv || 0;
     }
-    return { days, sum };
+    return { days, pct, sum };
   }
 
   // 回傳 f(snap) = 該快照日的含息累計損益（totalPnl + 累計股利）；股利先排序做前綴和，避免每筆快照都掃一次帳本

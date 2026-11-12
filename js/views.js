@@ -811,41 +811,25 @@ App.Views = (function () {
     };
   }
 
-  // 迷你走勢（sparkline）：以 totalPnl 序列畫面積線；stroke 不隨拉伸變粗。標出最高／最低點與數字
-  //   SVG 以 preserveAspectRatio=none 拉伸，圓點與文字若畫在 SVG 內會變形 → 用 HTML 疊在上面（left 用 %、top 用 px）
+  // 迷你走勢（sparkline）：以 totalPnl 序列畫面積線；stroke 不隨拉伸變粗
   function sparklineHtml(vals, color) {
     vals = (vals || []).filter(v => typeof v === 'number' && isFinite(v));
     if (vals.length < 2) return '';
-    const ex = App.Charts.extremes(vals);
-    // 取樣（最多約 44 點），最高／最低點一定保留
-    const N = 44, last = vals.length - 1;
-    let idx = vals.map((_, i) => i);
-    if (vals.length > N + 1) {
-      const set = new Set();
-      for (let i = 0; i <= N; i++) set.add(Math.round(i * last / N));
-      if (ex) { set.add(ex.hi); set.add(ex.lo); }
-      idx = [...set].sort((a, b) => a - b);
-    }
+    let pts = vals;
+    const N = 44;
+    if (vals.length > N) { const step = vals.length / N; pts = []; for (let i = 0; i < N; i++) pts.push(vals[Math.floor(i * step)]); pts.push(vals[vals.length - 1]); }
     const W = 300, H = 52, pad = 4;
-    let lo = Math.min(...idx.map(i => vals[i])), hi = Math.max(...idx.map(i => vals[i]));
+    let lo = Math.min(...pts), hi = Math.max(...pts);
     if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
-    const xAt = i => i / last * W;
+    const xAt = i => pts.length > 1 ? i / (pts.length - 1) * W : W / 2;
     const yAt = v => pad + (1 - (v - lo) / (hi - lo)) * (H - pad * 2);
-    const line = idx.map((i, k) => (k ? 'L' : 'M') + xAt(i).toFixed(1) + ' ' + yAt(vals[i]).toFixed(1)).join(' ');
+    const line = pts.map((v, i) => (i ? 'L' : 'M') + xAt(i).toFixed(1) + ' ' + yAt(v).toFixed(1)).join(' ');
     const fill = color === UI.LOSS ? 'rgba(67,160,71,0.13)' : color === UI.GAIN ? 'rgba(229,57,53,0.13)' : 'rgba(109,95,213,0.13)';
     // stroke 走 style 而非 SVG 屬性：CSS 變數(var(--gain))只在 style 內生效
-    const svg = `<svg class="rep-spark" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-hidden="true">
+    return `<svg class="rep-spark" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-hidden="true">
       <path d="${line} L${W} ${H} L0 ${H} Z" style="fill:${fill}"/>
       <path d="${line}" fill="none" style="stroke:${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     </svg>`;
-    if (!ex) return svg;
-    const mark = (i, isHi) => {
-      const xp = i / last * 100, y = yAt(vals[i]);
-      const shift = xp < 14 ? '0' : xp > 86 ? '-100%' : '-50%';
-      return `<i class="sp-dot" style="left:${xp.toFixed(2)}%;top:${y.toFixed(1)}px;background:${color}"></i>`
-        + `<span class="sp-lbl" style="left:${xp.toFixed(2)}%;top:${(isHi ? y - 17 : y + 6).toFixed(1)}px;transform:translateX(${shift})">${isHi ? '高' : '低'} ${U.fmtBannerSigned(vals[i])}</span>`;
-    };
-    return `<div class="rep-spark-wrap">${svg}${mark(ex.hi, true)}${mark(ex.lo, false)}</div>`;
   }
 
   function report(root) {
@@ -950,7 +934,7 @@ App.Views = (function () {
     }));
   }
   // ── 月份頁每日損益月曆 ──
-  // 每格只有日期＋當日盈虧；左上下拉選單切換 總損益／台股／美股／期貨／加密／股息／各群組，右上為該分類本月合計
+  // 每格：日期＋當日盈虧＋當日比例（盈虧 ÷ 前一日部位；股息不顯示比例）；左上下拉選單切換 總損益／台股／美股／期貨／加密／股息／各群組，右上為該分類本月合計
   // 群組：每日快照沒有分群組的數字 → 用成員歷史股價回算（fetchGroupSeries，需連網；結果快取到當天或交易筆數變動為止）
   const CAL_CATS = [['all', '總損益'], ['tw', '台股'], ['us', '美股'], ['fut', '期貨'], ['crypto', '加密'], ['div', '股息']];
   function calCats() { return CAL_CATS.filter(c => c[0] !== 'fut' || (App.ViewsFutures && App.ViewsFutures.visible())); }
@@ -990,7 +974,7 @@ App.Views = (function () {
 
     const first = new Date(rep.year, rep.month - 1, 1).getDay(), nDays = new Date(rep.year, rep.month, 0).getDate();
     const tp = U.taipeiParts(), today = tp.year === rep.year && tp.month === rep.month ? tp.day : 0;
-    const days = data ? data.days : {};
+    const days = data ? data.days : {}, pct = data && data.pct || {};
     let max = 0; for (const k in days) max = Math.max(max, Math.abs(days[k]));
     let cells = '';
     for (let i = 0; i < first; i++) cells += '<div class="cal-c pad"></div>';
@@ -998,7 +982,8 @@ App.Views = (function () {
       const v = days[d], td = d === today ? ' today' : '';
       if (v == null || Math.abs(v) < 0.5) { cells += `<div class="cal-c none${td}"><span class="cal-d">${d}</span></div>`; continue; }
       const lvl = Math.abs(v) / max > 0.6 ? 3 : Math.abs(v) / max > 0.25 ? 2 : 1;
-      cells += `<div class="cal-c ${v > 0 ? 'g' : 'l'}${lvl}${td}"><span class="cal-d">${d}</span><span class="cal-v${Math.abs(v) >= 1e7 ? ' sm' : ''}">${U.fmtCalCell(v)}</span></div>`;
+      const p = pct[d] == null ? '' : U.fmtCalPct(pct[d]);
+      cells += `<div class="cal-c ${v > 0 ? 'g' : 'l'}${lvl}${td}"><span class="cal-d">${d}</span><span class="cal-v${Math.abs(v) >= 1e7 ? ' sm' : ''}">${U.fmtCalCell(v)}</span>${p ? `<span class="cal-p">${p}</span>` : ''}</div>`;
     }
     const mi = (cat, gid, text, sub) => {
       const on = c.cat === cat && (cat !== 'group' || c.gid === gid);
@@ -1065,10 +1050,10 @@ App.Views = (function () {
   function autoGran(fromIso, toIso) {
     if (!fromIso || !toIso) return 'day';
     const days = Math.round((Date.parse(toIso + 'T12:00:00+08:00') - Date.parse(fromIso + 'T12:00:00+08:00')) / 86400000) + 1;
-    // 走勢折線盡量用每日資料：分桶只取每週／每月最後一天，會把期間內真正的高低點（含 ATH）吃掉
-    if (days <= 800) return 'day';
-    if (days <= 3650) return 'week';
-    return 'month';
+    if (days <= 40) return 'day';
+    if (days <= 200) return 'week';
+    if (days <= 1100) return 'month';
+    return 'year';
   }
   // X 軸標籤：稀疏到 ~7 個避免擠在一起；跨年份自動帶年份
   function chartLabels(buckets, gran) {

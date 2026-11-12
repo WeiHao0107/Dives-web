@@ -223,13 +223,22 @@ App.Util = (function () {
     return sign + (a / 1e8).toFixed(2) + '億';
   }
 
+  // 月曆格子的比例：<10% 兩位小數、<100% 一位、其餘整數；超過 ±999% 視為無意義 → 空字串
+  function fmtCalPct(p) {
+    if (p == null || !isFinite(p)) return '';
+    const a = Math.abs(p);
+    if (a >= 999.5) return '';
+    const t = a < 9.995 ? a.toFixed(2) : a < 99.95 ? a.toFixed(1) : String(Math.round(a));
+    return (+t === 0 ? '' : p < 0 ? '-' : '+') + t + '%';
+  }
+
   // HTML 跳脫：使用者輸入（帳戶/群組名、別名）與外部 API 名稱塞進 innerHTML 前一律經過這裡
   function esc(v) {
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   return {
-    esc, fmtCalCell, Market, normalizeMarketKey, guessMarketBySymbol, marketLabel,
+    esc, fmtCalCell, fmtCalPct, Market, normalizeMarketKey, guessMarketBySymbol, marketLabel,
     sanitizeSymbol, canonicalizeTwCode,
     fmtWhole, formatShares, formatPrice, fmtKMBB, fmtBanner, fmtBannerSigned, fmtPct,
     isoDate, taipeiParts, isWeekend, shouldUseMisRealtime, usOpenMinutes, usCountsTowardToday, twCountsTowardToday, parseNum

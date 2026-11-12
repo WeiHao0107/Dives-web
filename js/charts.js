@@ -57,14 +57,6 @@ App.Charts = (function () {
     });
   }
 
-  // 序列的最高／最低點索引（供折線圖標記）；不足兩點或全部相同 → null
-  function extremes(vals) {
-    if (!vals || vals.length < 2) return null;
-    let hi = 0, lo = 0;
-    for (let i = 1; i < vals.length; i++) { if (vals[i] > vals[hi]) hi = i; if (vals[i] < vals[lo]) lo = i; }
-    return vals[hi] - vals[lo] > 1e-9 ? { hi, lo } : null;
-  }
-
   function fmtAxis(v) {
     const av = Math.abs(v);
     if (av >= 1e8) return (v / 1e8).toFixed(1) + '億';
@@ -337,7 +329,7 @@ App.Charts = (function () {
     const valueFmt = opts.valueFmt || (v => App.Util.fmtKMBB(v));
     const H = opts.height || 200;
     const W = container.clientWidth || 340;
-    const padL = 46, padR = 10, padT = 18, padB = 22;   // 上方留白給最高點標籤
+    const padL = 46, padR = 10, padT = 10, padB = 22;
     const chartW = W - padL - padR, chartH = H - padT - padB;
 
     const rows = points.map(p => ({ date: p.date, vals: series.map(s => p.values[s.key] || 0) }));
@@ -366,20 +358,6 @@ App.Charts = (function () {
     });
     if (opts.xLabels) for (const e of opts.xLabels)
       svg += `<text x="${xAt(e.idx)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#78716c">${e.label}</text>`;
-    // 最高／最低點標記（第一條線）：圓點＋「高／低 數字」；標籤靠邊時改靠左／靠右對齊，放不下就換到點的另一側
-    const ex = opts.marks === false || !series.length ? null : extremes(rows.map(r => r.vals[0]));
-    if (ex) {
-      const mfmt = opts.markFmt || (v => App.Util.fmtKMBB(v));
-      const mark = (i, isHi) => {
-        const v = rows[i].vals[0], x = xAt(i), y = yAt(v);
-        const above = isHi ? (y - 16 >= 0) : (y + 15 > padT + chartH);
-        const anchor = x < padL + 36 ? 'start' : x > padL + chartW - 36 ? 'end' : 'middle';
-        const tx = anchor === 'start' ? x - 3 : anchor === 'end' ? x + 3 : x;
-        return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="${series[0].color}" style="stroke:var(--card)" stroke-width="1.6"/>`
-          + `<text class="ch-mark" x="${tx.toFixed(1)}" y="${(above ? y - 7 : y + 14).toFixed(1)}" text-anchor="${anchor}">${isHi ? '高' : '低'} ${mfmt(v)}</text>`;
-      };
-      svg += mark(ex.hi, true) + mark(ex.lo, false);
-    }
     svg += `<line class="cursor-line" x1="0" y1="${padT}" x2="0" y2="${padT + chartH}" stroke="#a8a29e" stroke-width="1" stroke-dasharray="3 2" visibility="hidden"/>`;
     svg += `</svg>`;
 
@@ -536,5 +514,5 @@ App.Charts = (function () {
     attachInteractive(container, svgEl, cursor, tip, handle);
   }
 
-  return { trend, bars, reportColumn, lineChart, barChart, dualBars, niceTicks, niceRange, axisLabels, extremes };
+  return { trend, bars, reportColumn, lineChart, barChart, dualBars, niceTicks, niceRange, axisLabels };
 })();

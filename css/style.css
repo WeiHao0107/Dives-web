@@ -672,27 +672,21 @@ input, select { font-family: inherit; font-size: 15px; }
 .cal-wk, .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .cal-wk { font-size: 11px; color: var(--sub); text-align: center; padding-bottom: 5px; }
 .cal-wk .we { opacity: 0.6; }
-.cal-c { height: 50px; border-radius: 9px; padding: 4px 1px 0; display: flex; flex-direction: column; align-items: center; gap: 5px; overflow: hidden; }
+.cal-c { height: 56px; border-radius: 9px; padding: 4px 1px 0; display: flex; flex-direction: column; align-items: center; gap: 5px; overflow: hidden; }
 .cal-c.none { border: 1px dashed var(--divider); }
 .cal-d { align-self: flex-start; padding-left: 4px; font-size: 10px; line-height: 1; color: var(--sub); }
 .cal-v { font-size: 11px; font-weight: 700; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cal-v.sm { font-size: 9.5px; letter-spacing: -0.4px; }
+.cal-p { margin-top: -1px; font-size: 9px; font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; opacity: 0.85; }
 .cal-c.g1 { background: rgba(229,57,53,0.08); } .cal-c.g2 { background: rgba(229,57,53,0.17); } .cal-c.g3 { background: rgba(229,57,53,0.28); }
 .cal-c.l1 { background: rgba(67,160,71,0.08); } .cal-c.l2 { background: rgba(67,160,71,0.17); } .cal-c.l3 { background: rgba(67,160,71,0.28); }
-.cal-c.g1 .cal-v, .cal-c.g2 .cal-v, .cal-c.g3 .cal-v { color: var(--gain); }
-.cal-c.l1 .cal-v, .cal-c.l2 .cal-v, .cal-c.l3 .cal-v { color: var(--loss); }
+.cal-c.g1 .cal-v, .cal-c.g2 .cal-v, .cal-c.g3 .cal-v, .cal-c.g1 .cal-p, .cal-c.g2 .cal-p, .cal-c.g3 .cal-p { color: var(--gain); }
+.cal-c.l1 .cal-v, .cal-c.l2 .cal-v, .cal-c.l3 .cal-v, .cal-c.l1 .cal-p, .cal-c.l2 .cal-p, .cal-c.l3 .cal-p { color: var(--loss); }
 .cal-c.today { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .cal-c.today .cal-d { color: var(--accent-ink); font-weight: 700; }
 .cal-note { padding: 60px 0; text-align: center; font-size: 13px; color: var(--sub); }
 .cal-retry { color: var(--accent-ink); font-weight: 700; font-size: 13px; }
 
-/* 折線圖最高／最低點標籤（文字外圍一圈卡片底色，壓在線上也讀得清楚） */
-.ch-mark { font-size: 10px; font-weight: 700; fill: var(--text); paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
-/* 報表迷你走勢的最高／最低點（HTML 疊在拉伸的 SVG 上） */
-.rep-spark-wrap { position: relative; margin: 22px 0 16px; }
-.rep-spark-wrap .rep-spark { margin: 0; }
-.sp-dot { position: absolute; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--bg); transform: translate(-50%, -50%); pointer-events: none; }
-.sp-lbl { position: absolute; font-size: 10px; font-weight: 700; line-height: 1; color: var(--text); white-space: nowrap; pointer-events: none; text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg), 0 0 3px var(--bg); }
 /* 資產頁 Hero：ATH（歷史最高淨資產） */
 .nw-ath { margin-top: 5px; font-size: 12px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nw-ath b { font-weight: 700; color: var(--text); }

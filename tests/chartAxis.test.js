@@ -40,10 +40,3 @@ test('axisLabels：依步距決定小數位，不會出現重複標籤', () => {
 test('0 刻度顯示 "0" 而非 "0萬"', () => {
   assert.deepEqual(App.Charts.axisLabels([0, 2500000, 5000000]), ['0', '250萬', '500萬']);
 });
-
-test('extremes：最高／最低點的位置；全部相同或不足兩點 → null；同值取最早的高點、最晚的低點不重疊', () => {
-  assert.deepEqual(Ch.extremes([5, 9, 3, 9, 4]), { hi: 1, lo: 2 });
-  assert.equal(Ch.extremes([7, 7, 7]), null);
-  assert.equal(Ch.extremes([7]), null);
-  assert.deepEqual(Ch.extremes([1, 2]), { hi: 1, lo: 0 });
-});
