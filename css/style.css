@@ -303,6 +303,10 @@ input, select { font-family: inherit; font-size: 15px; }
 .ibx-it.dup .tx-type, .ibx-it.dup .ibx-main, .ibx-it.dup .ibx-r { opacity: 0.6; }
 .ibx-dup { flex: none; padding: 1px 6px; border-radius: 6px; background: rgba(245,158,11,0.16); color: #B45309; font-size: 10.5px; font-weight: 700; }
 :root[data-theme="dark"] .ibx-dup { color: #FBBF24; }
+.ibx-bal { font-size: 12px; color: var(--sub); padding: 0 2px 7px; font-variant-numeric: tabular-nums; }
+.ibx-bal b { color: var(--text); font-weight: 700; }
+.ibx-bal i { font-style: normal; font-weight: 700; color: var(--gain); }
+.ibx-bal i.ok { color: var(--loss); }
 .ibx-src { font-size: 12px; color: var(--sub); margin: -2px 0 10px; }
 .sheet-foot .btn.ibx-skipone { flex: 0 0 auto; padding-left: 16px; padding-right: 16px; }
 .sheet-foot .btn:disabled { opacity: 0.45; }
@@ -588,6 +592,7 @@ input, select { font-family: inherit; font-size: 15px; }
 .gd-mid { font-size: 22px; font-weight: 800; letter-spacing: -0.4px; line-height: 1.2; margin-top: 7px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .gd-s { font-size: 13px; font-weight: 700; margin-top: 3px; min-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .gd-s span { color: var(--sub); font-weight: 500; font-size: 12px; }
+.gd-s i, .gd-pl i, .stk-facts b i { font-style: normal; }
 /* 已實現（可點）與含已實現合計 */
 .gd-sub { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 12px 0 12px; padding: 10px 14px; background: var(--card); border-radius: 12px; font-size: 13px; color: var(--sub); white-space: nowrap; }
 .gd-sub button { font: inherit; color: inherit; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -618,6 +623,8 @@ input, select { font-family: inherit; font-size: 15px; }
 .stk-lg .d2 { border-color: var(--loss); }
 .stk-host { position: relative; min-height: 220px; }
 .stk-host .chart-empty { padding: 86px 0; text-align: center; font-size: 13px; color: var(--sub); line-height: 1.9; }
+.stk-note { font-size: 11.5px; color: var(--sub); text-align: center; }
+.stk-note:empty { display: none; }
 .stk-txs { overflow: hidden; margin-bottom: 14px; padding: 0; }
 .stk-tx { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 13px; border-top: 1px solid var(--divider); text-align: left; color: var(--text); font: inherit; -webkit-tap-highlight-color: transparent; }
 .stk-tx:first-child { border-top: none; }

@@ -617,7 +617,7 @@ App.Calc = (function () {
     const fstate = App.Futures ? App.Futures.getState() : { trades: [], accountId: null };
     const ftrades = fstate.trades.slice().sort((a, b) => a.time - b.time);
     if (!txs.length && !ftrades.length) return 0;
-    const rate = fxRate || S.getFxRate() || 31.5;
+    const rateAt = fxFn(fxRate);   // fxRate：數字或歷史匯率序列；給序列 → 每天用當天匯率（舊做法全部用目前匯率）
     const clNow = cashLiabTwd();
     // 現金/負債：歷史餘額無法由交易回推 → 保留「當天實際記錄過」的值（非 est、有 netWorth 的快照），
     //   沒紀錄的日子沿用最近一筆紀錄（最早紀錄之前用最早那筆）；完全沒有紀錄才用目前值。
@@ -646,9 +646,11 @@ App.Calc = (function () {
     fkeys.forEach(k => { fptr[k] = 0; flast[k] = null; });
     const fAcct = fstate.accountId ? S.getCashAccounts().find(x => x.id === fstate.accountId) : null;
     const fbal = fAcct ? (fAcct.balance || 0) : 0;
-    // 期貨入金（視為固定）= 目前餘額 − 目前已實現淨額 → 歷史餘額 = 入金 + 當時已實現淨額
+    // 期貨入金：有日期的入出金紀錄（fstate.flows）照日期累計；其餘（手動調餘額的）視為一開始就在
+    //   → 歷史餘額 = 無紀錄入金 + 當時為止的入出金 + 當時已實現淨額
     const fRnow = App.Futures && ftrades.length ? App.Futures.replay(ftrades).events.reduce((a, e) => a + e.realizedPnl, 0) - ftrades.reduce((a, t) => a + (t.fee || 0) + (t.tax || 0), 0) : 0;
-    const fDep = fAcct ? fbal - fRnow : 0;
+    const fFlows = (fstate.flows || []).map(x => ({ date: U.isoDate(new Date(x.time)), amount: x.amount || 0 }));
+    const fDep = fAcct ? fbal - fRnow - fFlows.reduce((a, x) => a + x.amount, 0) : 0;
 
     const snaps = [];
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -661,6 +663,7 @@ App.Calc = (function () {
 
       const bySym = {};
       for (const t of txs) { if (txDate(t) <= ds) (bySym[t.symbol] = bySym[t.symbol] || []).push(t); }
+      const rate = rateAt(ds);
 
       const s = { twMarketValue: 0, usMarketValueTwd: 0, cryptoMarketValueTwd: 0, twCostBasis: 0, usCostBasisTwd: 0, cryptoCostBasisTwd: 0, twUnrealizedPnl: 0, usUnrealizedPnlTwd: 0, cryptoUnrealizedPnlTwd: 0, twRealizedPnl: 0, usRealizedPnlTwd: 0, cryptoRealizedPnlTwd: 0, cashBalance: 0 };
       for (const sym in bySym) {
@@ -705,7 +708,7 @@ App.Calc = (function () {
         s.futUnrealizedTwd = fU; s.futRealizedPnl = events.reduce((a, e) => a + e.realizedPnl, 0) - fFees;
         const rec = recorded[ds];
         const balThen = rec && rec.futEquityTwd != null ? rec.futEquityTwd - (rec.futUnrealizedTwd || 0)   // 當天實際記錄的餘額
-          : fAcct ? fDep + s.futRealizedPnl : 0;
+          : fAcct ? fDep + fFlows.reduce((a, x) => a + (x.date <= ds ? x.amount : 0), 0) + s.futRealizedPnl : 0;
         s.futNotionalTwd = fN; s.futEquityTwd = balThen + fU;
       }
       const rec = recorded[ds];
@@ -809,7 +812,7 @@ App.Calc = (function () {
     const set = new Set(symbols || []);
     const txs = S.getTransactions().filter(t => set.has(t.symbol)).sort((a, b) => a.time - b.time);
     if (!txs.length) return [];
-    const rate = fxRate || S.getFxRate() || 31.5;
+    const rateAt = fxFn(fxRate);   // fxRate：數字或歷史匯率序列（美股／加密用當天匯率換算）
     const mmap = S.metaMap();
     const codes = [...set];
     const txDate = t => U.isoDate(new Date(t.time));
@@ -825,6 +828,7 @@ App.Calc = (function () {
       const bySym = {};
       for (const t of txs) { if (txDate(t) <= ds) (bySym[t.symbol] = bySym[t.symbol] || []).push(t); }
       let mv = 0, cost = 0;
+      const rate = rateAt(ds);
       for (const sym in bySym) {
         const { shares, avgCost } = computeAvgCostPosition(bySym[sym]);
         if (shares <= 1e-9) continue;
@@ -890,18 +894,33 @@ App.Calc = (function () {
     const b = prevBase > 0.5 ? prevBase : curBase > 0.5 ? curBase - v : 0;
     return b > 0.5 ? v / b * 100 : null;
   }
+  // 匯率來源 → rateAt(日期)。fx 可以是數字（所有日期同一個匯率）或歷史序列 [{date, rate}]（已升序）：
+  //   取「該日或之前最近一筆」；比最早一筆還早 → 用最早那筆；沒有任何資料 → 目前匯率
+  function fxFn(fx) {
+    const cur = S.getFxRate() || 31.5;
+    if (typeof fx === 'number' && fx > 0) return () => fx;
+    const arr = Array.isArray(fx) ? fx.filter(x => x && x.date && x.rate > 0) : [];
+    if (!arr.length) return () => cur;
+    return ds => {
+      let lo = 0, hi = arr.length - 1, ans = -1;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (arr[mid].date <= ds) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
+      return ans >= 0 ? arr[ans].rate : arr[0].rate;
+    };
+  }
+
   // 單一標的的每日走勢（個股頁）：從第一筆交易到今天，每天一點
   //   points：{ date, price(原幣收盤；沒有歷史價 → 均價), shares, avgCost(原幣；沒持股 → null), mv, cost }
-  //           mv／cost 為台幣（美股／加密 × 目前匯率）；cost = 目前持股的成本（賣出後跟著減少）
+  //           mv／cost 為台幣（美股／加密 × 當天匯率；fxRate 給歷史序列才有當天匯率，給數字就全程同一個）；
+  //           cost = 當時持股的成本（賣出後跟著減少）
   //   trades：{ date, idx(對應 points 的位置), type:'BUY'|'SELL', shares, price }（配股不列）
   //   hist：{ 代號: [{date, close}] }（已升序）
   function symbolSeries(symbol, hist, fxRate) {
     const txs = S.getTransactions().filter(t => t.symbol === symbol).sort((a, b) => a.time - b.time);
     if (!txs.length) return { points: [], trades: [] };
-    const rate = fxRate || S.getFxRate() || 31.5;
+    const rateAt = fxFn(fxRate);
     const meta = S.metaMap()[symbol];
     const mk = U.normalizeMarketKey(meta ? meta.market : U.guessMarketBySymbol(symbol));
-    const conv = mk === U.Market.us || mk === U.Market.crypto ? rate : 1;
+    const usd = mk === U.Market.us || mk === U.Market.crypto;
     const txDate = t => U.isoDate(new Date(t.time));
     const arr = (hist && hist[symbol]) || [];
     const start = new Date(txDate(txs[0]) + 'T00:00:00+08:00'), end = new Date(U.isoDate() + 'T00:00:00+08:00');
@@ -914,6 +933,7 @@ App.Calc = (function () {
       const { shares, avgCost } = computeAvgCostPosition(upto);
       const has = shares > 1e-9;
       const price = last != null ? last : (has ? avgCost : upto[upto.length - 1].price);
+      const conv = usd ? rateAt(ds) : 1;
       idxOf[ds] = points.length;
       points.push({ date: ds, price, shares: has ? shares : 0, avgCost: has ? avgCost : null, mv: has ? shares * price * conv : 0, cost: has ? shares * avgCost * conv : 0 });
     }
@@ -1112,6 +1132,8 @@ App.Calc = (function () {
       mv += v * (_divIsUsd(p.symbol) ? rate : 1);
     }
     if (mv > 1e-9) flows.push({ time: now, amount: mv });
+    // 期貨（有連結保證金帳戶才算得出本金）：入金為投入、目前權益數為終值
+    if (App.Futures && App.Futures.xirrFlows) for (const x of App.Futures.xirrFlows(S.getPrices(), now)) flows.push(x);
     return flows;
   }
 
@@ -1338,7 +1360,7 @@ App.Calc = (function () {
     computeAvgCostPosition, buildPositions, buildSummary,
     addTransaction, updateTransaction, deleteTransaction, recomputeRealized, realizedByTxId, firstOversell,
     addStockDividend, dividendsTotalTwd, dividendsBetween, dividendsUpTo, addDividend, updateDividend, deleteDividend, sharesHeldBefore,
-    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, calendarPnl, groupCalendarPnl, groupPnl, symbolSeries, capitalBase, athInfo, txCashDelta, cashLiabTwd,
+    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, calendarPnl, groupCalendarPnl, groupPnl, symbolSeries, fxFn, capitalBase, athInfo, txCashDelta, cashLiabTwd,
     netWorthBuckets, findAbsurdFees, repairFees, buildGroupSeries, tradingStats, scopedStats, xirrRate, buildXirrFlows, portfolioXirr,
     recurringDueDates, isoAddDays, priceOnOrBefore, planFee, applyLiabilityPayment, investedBetween, feesSummary,
   };

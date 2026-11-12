@@ -38,6 +38,8 @@ App.Store = (function () {
     allocUi: 'dives_alloc_ui',
     theme: 'dives_theme',
     futures: 'dives_futures',
+    fxHist: 'dives_fx_hist',
+    histCache: 'dives_hist_cache',
     inbox: 'dives_inbox',
     inboxDone: 'dives_inbox_done',
     inboxCfg: 'dives_inbox_cfg',
@@ -181,9 +183,27 @@ App.Store = (function () {
   function unreadNotifCount() { return getNotifications().filter(n => !n.read).length; }
   function markNotificationsRead() { setNotifications(getNotifications().map(n => n.read ? n : Object.assign({}, n, { read: true }))); }
 
+  // ---- 本機快取（不同步）：歷史匯率、個股頁的歷史股價 ----
+  //   fxHist：{ day(抓取日), from, rows:[{date, rate}] }
+  //   histCache：{ 代號: { day(抓取日), from, rows:[[date, close], ...] } }，最多留 40 檔（最久沒抓的先丟）
+  function getFxHist() { const r = read(K.fxHist, null); return r && Array.isArray(r.rows) ? r : null; }
+  function setFxHist(v) { write(K.fxHist, v); }
+  function getHistCache(sym) {
+    const all = read(K.histCache, null) || {};
+    const e = all[sym];
+    return e && Array.isArray(e.rows) ? { day: e.day, from: e.from, rows: e.rows.map(r => ({ date: r[0], close: r[1] })) } : null;
+  }
+  function setHistCache(sym, from, rows, day) {
+    const all = read(K.histCache, null) || {};
+    all[sym] = { day, from, rows: rows.map(r => [r.date, r.close]) };
+    const keys = Object.keys(all);
+    if (keys.length > 40) keys.sort((x, y) => (all[x].day || '') < (all[y].day || '') ? -1 : 1).slice(0, keys.length - 40).forEach(k2 => { delete all[k2]; });
+    write(K.histCache, all);
+  }
+
   // ---- 待確認交易（見 inbox.js）----
   //   inbox：Gist 收件匣檔的本機快取；inboxDone：{ id: [狀態, 時間] }；inboxCfg：{ acct: { 券商: 現金帳戶 id } }
-  function getInbox() { const r = read(K.inbox, null); return r && Array.isArray(r.items) ? r : { updatedAt: 0, items: [] }; }
+  function getInbox() { const r = read(K.inbox, null); return r && Array.isArray(r.items) ? { updatedAt: r.updatedAt || 0, items: r.items, balances: Array.isArray(r.balances) ? r.balances : [] } : { updatedAt: 0, items: [], balances: [] }; }
   function setInbox(v) { write(K.inbox, v); }
   function getInboxDone() { const r = read(K.inboxDone, null); return r && typeof r === 'object' && !Array.isArray(r) ? r : {}; }
   function setInboxDone(v) { write(K.inboxDone, v); }
@@ -282,7 +302,7 @@ App.Store = (function () {
     getRecurringPlans, setRecurringPlans,
     getDividends, setDividends,
     getNotifications, setNotifications, pushNotification, unreadNotifCount, markNotificationsRead,
-    getInbox, setInbox, getInboxDone, setInboxDone, getInboxCfg, setInboxCfg,
+    getInbox, setInbox, getInboxDone, setInboxDone, getInboxCfg, setInboxCfg, getFxHist, setFxHist, getHistCache, setHistCache,
     getAutoDivImport, setAutoDivImport, getAutoDivAcct, setAutoDivAcct,
     getAutoDivUs, setAutoDivUs, getAutoDivAcctUs, setAutoDivAcctUs, getAutoDivUsTax, setAutoDivUsTax,
     getGroups, setGroups, getGroupMap, setGroupMap,

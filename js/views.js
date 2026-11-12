@@ -22,7 +22,7 @@ App.Views = (function () {
   // 隱藏模式下只遮住淨資產／總倉位（Hero 大數字），換成四個米字號；其餘金額不隱藏
   function maskAmounts(root) {
     if (!S.getPrivacy()) return;
-    root.querySelectorAll('.nw-num, .alloc-amt, .nw-ath-amt').forEach(el => { el.textContent = '＊＊＊＊'; });
+    root.querySelectorAll('.nw-num, .alloc-amt, .nw-ath-amt, .pv').forEach(el => { el.textContent = '＊＊＊＊'; });   // .pv：群組頁／個股頁的金額（百分比不遮）
   }
 
   /* ===================== 投資（市場分類卡，沿用資產頁風格）===================== */
@@ -89,9 +89,10 @@ App.Views = (function () {
   function openInboxReview() {
     const I = App.Inbox, pend = I.pending();
     if (!pend.length) { ibx.sel = null; ibx.errs = {}; UI.closeSheet(); App.renderCurrent && App.renderCurrent(); return; }
-    const dup = {}; pend.forEach(it => { dup[it.id] = I.isDuplicate(it); });
-    // 預設全選，但「已有相同紀錄」的不勾；之後新進來的項目同樣規則
-    if (!ibx.sel) ibx.sel = new Set(pend.filter(it => !dup[it.id]).map(it => it.id));
+    // 和既有手動紀錄配對到的項目：確認時不會新增，而是校正那筆的日期與費用（入出金：只補記日期）→ 不會重複入帳，所以預設也勾選
+    const match = I.matchExisting(pend), dup = {};
+    pend.forEach(it => { dup[it.id] = !!match[it.id]; });
+    if (!ibx.sel) ibx.sel = new Set(pend.map(it => it.id));
     const ids = new Set(pend.map(it => it.id));
     ibx.sel = new Set([...ibx.sel].filter(id => ids.has(id)));
     const brokers = []; pend.forEach(it => { if (!brokers.includes(it.broker)) brokers.push(it.broker); });
@@ -99,8 +100,14 @@ App.Views = (function () {
 
     const rowHtml = it => {
       const on = ibx.sel.has(it.id), err = ibx.errs[it.id];
-      let name, sub, amt;
-      if (it.kind === 'fut') {
+      let name, sub, amt, chip = `<span class="tx-type ${it.side === 'BUY' ? 'buy' : 'sell'}">${it.side === 'BUY' ? 'Buy' : 'Sell'}</span>`;
+      if (it.kind === 'fut-cash') {
+        const dep = it.type === 'DEPOSIT';
+        chip = `<span class="tx-type evt">${dep ? '入金' : '出金'}</span>`;
+        name = `<b>保證金${dep ? '入金' : '出金'}</b>`;
+        sub = dup[it.id] ? '餘額已和對帳單相符，只補記日期' : `保證金帳戶 ${dep ? '+' : '−'}${U.fmtWhole(it.amount)}`;
+        amt = `<b>${dep ? '+' : '−'}${U.fmtWhole(it.amount)}</b>`;
+      } else if (it.kind === 'fut') {
         name = `<b>${App.Futures.LABEL[it.contract]}</b><em>${it.month}</em>`;
         sub = `${it.lots} 口 @ ${U.fmtWhole(it.price)}${it.fee ? ' · 費 ' + U.fmtWhole(it.fee) : ''}${it.tax ? ' · 稅 ' + U.fmtWhole(it.tax) : ''}`;
         amt = '';
@@ -112,8 +119,8 @@ App.Views = (function () {
       }
       return `<div class="ibx-it${dup[it.id] ? ' dup' : ''}" data-id="${esc(it.id)}">
         <button class="ibx-ck${on ? ' on' : ''}" data-ck="${esc(it.id)}" role="checkbox" aria-checked="${on}" aria-label="選取這筆"></button>
-        <span class="tx-type ${it.side === 'BUY' ? 'buy' : 'sell'}">${it.side === 'BUY' ? 'Buy' : 'Sell'}</span>
-        <div class="ibx-main"><div class="ibx-t">${name}${dup[it.id] ? '<span class="ibx-dup">可能已輸入</span>' : ''}</div><div class="ibx-s">${sub}</div>${err ? `<div class="ibx-err">${esc(err)}</div>` : ''}</div>
+        ${chip}
+        <div class="ibx-main"><div class="ibx-t">${name}${dup[it.id] ? `<span class="ibx-dup">${it.kind === 'fut-cash' ? '已入帳' : '已輸入・校正'}</span>` : ''}</div><div class="ibx-s">${sub}</div>${err ? `<div class="ibx-err">${esc(err)}</div>` : ''}</div>
         <div class="ibx-r">${amt}<span>${md(it.date)}</span></div>
       </div>`;
     };
@@ -125,16 +132,20 @@ App.Views = (function () {
         const opts = S.getCashAccounts().filter(a => a.currency === cur), sel = I.accountFor(b);
         acct = `<select class="ibx-acct" data-broker="${esc(b)}" aria-label="${esc(I.brokerName(b))} 的現金帳戶"><option value="">不連動現金帳戶</option>${opts.map(a => `<option value="${a.id}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select>`;
       }
-      return `<div class="ibx-gh"><b>${esc(I.brokerLabel(b))}</b>${acct}</div><div class="ibx-list">${items.map(rowHtml).join('')}</div>`;
+      // 期貨：對帳單餘額 vs Dives 保證金帳戶餘額（只供核對）
+      const bc = I.balanceCheck(b);
+      const bal = bc ? `<div class="ibx-bal">對帳單餘額（${md(bc.date)}）<b>${U.fmtWhole(bc.statement)}</b> · Dives <b>${U.fmtWhole(bc.dives)}</b>${Math.abs(bc.diff) < 1 ? ' <i class="ok">相符</i>' : ` <i>差 ${U.fmtWhole(Math.abs(bc.diff))}</i>`}</div>` : '';
+      return `<div class="ibx-gh"><b>${esc(I.brokerLabel(b))}</b>${acct}</div>${bal}<div class="ibx-list">${items.map(rowHtml).join('')}</div>`;
     };
-    const body = `<div class="ibx-top"><span>${pend.length} 筆待確認，點一筆可先修改</span><button class="ibx-all" id="ibx-all"></button></div>${brokers.map(groupHtml).join('')}`;
+    const nDup = pend.filter(it => dup[it.id]).length;
+    const body = `<div class="ibx-top"><span>${pend.length} 筆待確認${nDup ? `，其中 ${nDup} 筆你已輸入過（確認後校正日期與費用，不會重複）` : '，點一筆可先修改'}</span><button class="ibx-all" id="ibx-all"></button></div>${brokers.map(groupHtml).join('')}`;
     const ov = UI.openSheet('待確認交易', body, `<button class="btn btn-ghost" id="ibx-skip">略過選取</button><button class="btn btn-primary" id="ibx-import"></button>`);
     // 勾選只就地更新（不重開 sheet，避免閃動與捲動位置跑掉）
     const paintSel = () => {
       const n = ibx.sel.size;
       ov.querySelectorAll('.ibx-ck').forEach(b => { const on = ibx.sel.has(b.dataset.ck); b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
       ov.querySelector('#ibx-all').textContent = n === pend.length ? '取消全選' : '全選';
-      ov.querySelector('#ibx-import').textContent = `匯入 ${n} 筆`;
+      ov.querySelector('#ibx-import').textContent = `確認 ${n} 筆`;
       ov.querySelector('#ibx-import').disabled = ov.querySelector('#ibx-skip').disabled = !n;
     };
     paintSel();
@@ -146,7 +157,9 @@ App.Views = (function () {
     }));
     ov.querySelectorAll('.ibx-acct').forEach(s => s.addEventListener('change', () => { I.setAccountFor(s.dataset.broker, s.value); if (App.Sync) App.Sync.markDirty(); }));
     ov.querySelectorAll('.ibx-it').forEach(r => r.addEventListener('click', () => {
-      const it = pend.find(x => x.id === r.dataset.id); if (it) openInboxItem(it);
+      const it = pend.find(x => x.id === r.dataset.id); if (!it) return;
+      if (it.kind === 'fut-cash') { if (ibx.sel.has(it.id)) ibx.sel.delete(it.id); else ibx.sel.add(it.id); paintSel(); return; }   // 入出金沒有可改的欄位 → 點一下只切換勾選
+      openInboxItem(it, match[it.id]);
     }));
     ov.querySelector('#ibx-skip').addEventListener('click', () => {
       const chosen = [...ibx.sel];
@@ -161,13 +174,14 @@ App.Views = (function () {
     });
     ov.querySelector('#ibx-import').addEventListener('click', () => {
       const chosen = pend.filter(it => ibx.sel.has(it.id));
-      const r = I.importMany(chosen, b => I.accountFor(b) || undefined);
+      const r = I.importMany(chosen, b => I.accountFor(b) || undefined, match);
       ibx.errs = {}; r.failed.forEach(f => { ibx.errs[f.id] = f.msg; });
       ibx.sel = new Set(r.failed.map(f => f.id));
       UI.closeSheet();
-      inboxAfterImport(r.ok, r.backdated, r.symbols);
-      if (r.failed.length) { UI.toast(`已匯入 ${r.ok} 筆，${r.failed.length} 筆失敗（原因見清單）`, 'error'); openInboxReview(); }
-      else { UI.toast(`已匯入 ${r.ok} 筆交易`, 'success'); if (I.pendingCount()) openInboxReview(); else ibx.sel = null; }
+      inboxAfterImport(r.ok + r.fixed, r.backdated, r.symbols);
+      const done = [r.ok ? `新增 ${r.ok} 筆` : '', r.fixed ? `校正 ${r.fixed} 筆` : ''].filter(Boolean).join('、') || '沒有變更';
+      if (r.failed.length) { UI.toast(`${done}，${r.failed.length} 筆失敗（原因見清單）`, 'error'); openInboxReview(); }
+      else { UI.toast(`已${done}`, 'success'); if (I.pendingCount()) openInboxReview(); else ibx.sel = null; }
     });
   }
   // 匯入後：存檔、同步、刷新報價；有今天以前的交易 → 重建歷史走勢，過去幾天的快照（損益月曆）才會包含這些交易
@@ -177,7 +191,7 @@ App.Views = (function () {
     if (backdated && App.rebuildHistory) App.rebuildHistory().catch(e => console.warn('rebuild after import failed', e));
   }
   // 單筆：開一般的交易表單並帶入內容，確認＝匯入；另有「略過」。取消 → 回清單
-  function openInboxItem(it) {
+  function openInboxItem(it, matched) {
     const I = App.Inbox;
     const back = () => openInboxReview();
     const done = () => { delete ibx.errs[it.id]; if (ibx.sel) ibx.sel.delete(it.id); };
@@ -199,7 +213,7 @@ App.Views = (function () {
     }
     openTxForm(null, null, {
       preset: { symbol: it.symbol, name: it.name, market: it.market || U.guessMarketBySymbol(it.symbol), isBuy: it.side === 'BUY', date: it.date, time: I.itemTime(it),
-        shares: it.shares, price: it.price, fee: Math.round((it.fee + (it.tax || 0)) * 100) / 100, accountId: I.accountFor(it.broker), source: 'inbox:' + it.broker, note: '來源：' + src },
+        shares: it.shares, price: it.price, fee: Math.round((it.fee + (it.tax || 0)) * 100) / 100, accountId: I.accountFor(it.broker), source: 'inbox:' + it.broker, note: '來源：' + src + (matched ? '。你已輸入過相同的紀錄；在這裡按「匯入這筆」會另外新增一筆。只想校正日期請回清單勾選後按確認。' : '') },
       onAdded: () => { I.markDone([it.id], 'i'); done(); },
       after: (sym, time) => { if (U.isoDate(new Date(time)) < U.isoDate() && App.rebuildHistory) App.rebuildHistory().catch(() => {}); UI.toast('已匯入', 'success'); back(); },
       onCancel: back, onSkip: skip,
@@ -1173,8 +1187,9 @@ App.Views = (function () {
   //   nw/gt 僅保留各自的 metric（走勢/漲幅/投入）與 year（漲幅選年）；時間區間改用共用的 chartRange
   const as = { openCat: null, detailGroup: null, groupAllocSel: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
     groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null,
-    detailSym: null, stk: { mode: 'value', key: null, data: null, loading: null, error: null, range: { range: 'all', from: null, to: null } } };
-  // 個股頁：mode＝value(市值與成本)｜price(股價與均價)；range＝走勢範圍（個股頁自己的，預設全部，進到個股頁時重設）
+    detailSym: null, stk: { mode: 'value', cache: {}, loading: null, error: null, range: { range: 'all', from: null, to: null } } };
+  // 個股頁：mode＝value(市值與成本)｜price(股價與均價)；cache＝{ 代號: { key, data, asOf, stale } }（這次使用期間各檔的走勢）；
+  //   range＝走勢範圍（個股頁自己的，預設全部，進到個股頁時重設）
   // 淨資產／投資／群組／期貨走勢圖共用的範圍：預設全部，只在這次使用期間有效（不保存）
   const chartRange = { range: 'all', from: null, to: null };
 
@@ -1734,24 +1749,24 @@ App.Views = (function () {
     // 收合：一列——市值，加上目前損益與報酬率
     const heroHtml = !topOpen
       ? `<button class="card gd-mini" id="gd-fold" aria-label="展開群組摘要" aria-expanded="false">
-          <div class="gd-ml"><span>市值 (TWD)</span><b class="gd-big${bigCls}">${U.fmtWhole(gTotal)}</b></div>
-          ${showPnl ? `<div class="gd-mr" style="color:${colorOf(gp.unrealizedTwd)}"><b>${compact(gp.unrealizedTwd)}</b>${gp.unrealizedPct != null ? `<em>${U.fmtPct(gp.unrealizedPct)}</em>` : ''}</div>` : ''}
+          <div class="gd-ml"><span>市值 (TWD)</span><b class="gd-big${bigCls} pv">${U.fmtWhole(gTotal)}</b></div>
+          ${showPnl ? `<div class="gd-mr" style="color:${colorOf(gp.unrealizedTwd)}"><b class="pv">${compact(gp.unrealizedTwd)}</b>${gp.unrealizedPct != null ? `<em>${U.fmtPct(gp.unrealizedPct)}</em>` : ''}</div>` : ''}
           <i>${chev(false)}</i></button>`
       : `<div class="gd-hero">
       <div class="gd-blk">
         <div class="gd-cap">市值 (TWD)</div>
-        <div class="gd-big${bigCls}">${U.fmtWhole(gTotal)}</div>
-        <div class="gd-s" style="color:${UI.pnlColor(gDay)}">${gDay > 0 ? '▲' : gDay < 0 ? '▼' : '–'} ${U.fmtWhole(Math.abs(gDay))} (${Math.abs(gDayPct).toFixed(2)}%) <span>今日</span></div>
+        <div class="gd-big${bigCls} pv">${U.fmtWhole(gTotal)}</div>
+        <div class="gd-s" style="color:${UI.pnlColor(gDay)}">${gDay > 0 ? '▲' : gDay < 0 ? '▼' : '–'} <i class="pv">${U.fmtWhole(Math.abs(gDay))}</i> (${Math.abs(gDayPct).toFixed(2)}%) <span>今日</span></div>
       </div>
       ${showPnl ? `<div class="gd-blk r">
         <div class="gd-cap">目前損益</div>
-        <div class="gd-mid" style="color:${colorOf(gp.unrealizedTwd)}">${compact(gp.unrealizedTwd)}</div>
+        <div class="gd-mid pv" style="color:${colorOf(gp.unrealizedTwd)}">${compact(gp.unrealizedTwd)}</div>
         <div class="gd-s" style="color:${colorOf(gp.unrealizedTwd)}">${gp.unrealizedPct != null ? U.fmtPct(gp.unrealizedPct) : ''}</div>
       </div>` : ''}
     </div>
     ${showPnl ? `<div class="gd-sub">
-      <button id="gd-realized" aria-label="查看這個群組的賣出紀錄">已實現 <b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b> <i>›</i></button>
-      <span>含已實現合計 <b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span>
+      <button id="gd-realized" aria-label="查看這個群組的賣出紀錄">已實現 <b class="pv" style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b> <i>›</i></button>
+      <span>含已實現合計 <b class="pv" style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span>
     </div>` : ''}`;
     const basis = S.getPctBasis();
     const denomV = basis === 'group' ? (gTotal || 1) : basis === 'invest' ? sum.investTwd : sum.netWorth;
@@ -1790,9 +1805,9 @@ App.Views = (function () {
           <div class="as-sub">持有 ${U.formatShares(p.shares)}, ${isUsd ? '$' : ''}${U.formatPrice(p.lastPrice != null ? p.lastPrice : p.avgCost)}</div>
         </div>
         <div class="gd-val">
-          <div class="gd-amt">${U.fmtWhole(mv)}</div>
+          <div class="gd-amt pv">${U.fmtWhole(mv)}</div>
           ${p.lastPrice != null
-            ? `<div class="gd-pl" style="color:${UI.pnlColor(Math.abs(pl) < 0.5 ? 0 : pl)}">${compact(pl)}${plPct != null ? ' (' + U.fmtPct(plPct) + ')' : ''}</div>`
+            ? `<div class="gd-pl" style="color:${UI.pnlColor(Math.abs(pl) < 0.5 ? 0 : pl)}"><i class="pv">${compact(pl)}</i>${plPct != null ? ' (' + U.fmtPct(plPct) + ')' : ''}</div>`
             : '<div class="gd-pl" style="color:var(--sub)">尚無報價</div>'}
         </div>
       </div>`;
@@ -1813,22 +1828,47 @@ App.Views = (function () {
     root.querySelector('.gd-plus').addEventListener('click', () =>
       openTxForm(null, null, { onAdded: sym => { const m = S.getGroupMap(); m[sym] = gid; S.setGroupMap(m); if (App.Sync) App.Sync.markDirty(); } }));
     root.querySelectorAll('.gd-row').forEach(r => r.addEventListener('click', () => openStock(root, r.dataset.sym)));
+    maskAmounts(root);
   }
 
   /* ---- 個股頁：損益、走勢對成本、交易紀錄 ---- */
   function openStock(root, sym) { as.detailSym = sym; as.stk.range = { range: 'all', from: null, to: null }; assets(root); }
   // 抓這一檔的歷史價並算出每日走勢；抓失敗就丟錯（不拿成本估算當成真的走勢）
+  // 歷史匯率序列（最後補上今天的即時匯率，圖的最後一點才會和畫面上方的市值一致）。抓不到 → null（改用目前匯率）
+  async function fxHistory(firstDate) {
+    const rows = await App.Api.fetchFxHistory(firstDate);
+    if (!rows.length) return null;
+    const today = U.isoDate(), cur = S.getFxRate();
+    return rows[rows.length - 1].date < today && cur > 0 ? rows.concat([{ date: today, rate: cur }]) : rows;
+  }
+  // 個股歷史價：今天抓過就用本機快取（不連網）；否則連網抓並存起來；抓失敗（離線）→ 用上次存的，並標示資料日期。
+  //   回傳 { data: {points, trades}, asOf: 資料抓取日, stale: 是否為舊資料 }；完全沒有可用資料才丟錯
   async function fetchSymbolSeries(sym) {
     const txs = S.getTransactions().filter(t => t.symbol === sym);
-    if (!txs.length) return { points: [], trades: [] };
+    if (!txs.length) return { data: { points: [], trades: [] }, asOf: U.isoDate(), stale: false };
     const meta = S.metaMap()[sym];
     const mk = U.normalizeMarketKey((meta && meta.market) || U.guessMarketBySymbol(sym));
+    const usd = mk === U.Market.us || mk === U.Market.crypto;
     const firstDate = U.isoDate(new Date(Math.min(...txs.map(t => t.time))));
-    await App.Api.fetchFx();
-    const h = await (mk === U.Market.us ? App.Api.fetchUsHistory([sym], firstDate)
-      : mk === U.Market.crypto ? App.Api.fetchCryptoHistory([sym], firstDate) : App.Api.fetchTwHistory([sym], firstDate));
-    if ((h._failed || []).length) throw new Error('歷史價格抓取失敗：' + sym);
-    return C.symbolSeries(sym, h, S.getFxRate());
+    const today = U.isoDate(), cached = S.getHistCache(sym);
+    let rows, asOf = today, stale = false;
+    if (cached && cached.day === today && cached.from <= firstDate && cached.rows.length) rows = cached.rows;
+    else {
+      try {
+        await App.Api.fetchFx();
+        const h = await (mk === U.Market.us ? App.Api.fetchUsHistory([sym], firstDate)
+          : mk === U.Market.crypto ? App.Api.fetchCryptoHistory([sym], firstDate) : App.Api.fetchTwHistory([sym], firstDate));
+        if ((h._failed || []).length || !(h[sym] || []).length) throw new Error('歷史價格抓取失敗：' + sym);
+        rows = h[sym];
+        S.setHistCache(sym, firstDate, rows, today);
+      } catch (e) {
+        if (!cached || !cached.rows.length) throw e;   // 沒有舊資料可用 → 不拿成本估算當成真的走勢
+        rows = cached.rows; asOf = cached.day; stale = true;
+      }
+    }
+    const fx = usd ? await fxHistory(firstDate) : null;
+    const hist = {}; hist[sym] = rows;
+    return { data: C.symbolSeries(sym, hist, fx || S.getFxRate()), asOf, stale };
   }
   // 右上角選單：新增交易／分類群組
   function openStockMenu(sym, onDone) {
@@ -1881,12 +1921,12 @@ App.Views = (function () {
     <div class="gd-hero">
       <div class="gd-blk">
         <div class="gd-cap">市值 (TWD)</div>
-        <div class="gd-big${bigCls}">${U.fmtWhole(mv)}</div>
-        <div class="gd-s" style="color:${UI.pnlColor(day)}">${day > 0 ? '▲' : day < 0 ? '▼' : '–'} ${U.fmtWhole(Math.abs(day))} (${Math.abs(dayPct).toFixed(2)}%) <span>今日</span></div>
+        <div class="gd-big${bigCls} pv">${U.fmtWhole(mv)}</div>
+        <div class="gd-s" style="color:${UI.pnlColor(day)}">${day > 0 ? '▲' : day < 0 ? '▼' : '–'} <i class="pv">${U.fmtWhole(Math.abs(day))}</i> (${Math.abs(dayPct).toFixed(2)}%) <span>今日</span></div>
       </div>
       <div class="gd-blk r">
         <div class="gd-cap">目前損益</div>
-        <div class="gd-mid" style="color:${colorOf(gp.unrealizedTwd)}">${compact(gp.unrealizedTwd)}</div>
+        <div class="gd-mid pv" style="color:${colorOf(gp.unrealizedTwd)}">${compact(gp.unrealizedTwd)}</div>
         <div class="gd-s" style="color:${colorOf(gp.unrealizedTwd)}">${gp.unrealizedPct != null ? U.fmtPct(gp.unrealizedPct) : ''}</div>
       </div>
     </div>`;
@@ -1898,19 +1938,20 @@ App.Views = (function () {
       const buy = t.type === 'BUY', rz = !buy ? rzOf[t.id] : null;
       const right = buy ? `NT$ ${U.fmtBanner((t.shares * t.price + (t.fee || 0)) * conv)}`
         : rz ? `<span style="color:${UI.pnlColor(rz.realizedPnl)}">${U.fmtBannerSigned(rz.realizedPnl * conv)}</span>` : `NT$ ${U.fmtBanner(t.shares * t.price * conv)}`;
-      return `<button class="stk-tx" data-id="${t.id}"><span class="tx-type ${buy ? 'buy' : 'sell'}">${buy ? 'Buy' : 'Sell'}</span><span class="stk-txm"><b>${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}</b><small>${d}</small></span><em>${right}</em></button>`;
+      return `<button class="stk-tx" data-id="${t.id}"><span class="tx-type ${buy ? 'buy' : 'sell'}">${buy ? 'Buy' : 'Sell'}</span><span class="stk-txm"><b>${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}</b><small>${d}</small></span><em class="pv">${right}</em></button>`;
     }).join('');
 
     const listHtml = `
       <div class="card stk-facts">
-        ${fact('持有', p ? U.formatShares(p.shares) + shareUnit(mk) : '0')}${fact('均價', p ? cur + U.formatPrice(p.avgCost) : '--')}${fact('現價', p && p.lastPrice != null ? cur + U.formatPrice(p.lastPrice) : '--')}${fact('成本', U.fmtBanner(gp.costTwd))}
+        ${fact('持有', p ? U.formatShares(p.shares) + shareUnit(mk) : '0')}${fact('均價', p ? cur + U.formatPrice(p.avgCost) : '--')}${fact('現價', p && p.lastPrice != null ? cur + U.formatPrice(p.lastPrice) : '--')}${fact('成本', `<i class="pv">${U.fmtBanner(gp.costTwd)}</i>`)}
       </div>
-      ${hasReal ? `<div class="gd-sub"><span>已實現 <b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></span><span>含已實現合計 <b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span></div>` : ''}
+      ${hasReal ? `<div class="gd-sub"><span>已實現 <b class="pv" style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></span><span>含已實現合計 <b class="pv" style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span></div>` : ''}
       <div class="card stk-chart">
         <div class="seg seg-wide" id="stk-mode"><button class="seg-btn ${as.stk.mode === 'value' ? 'active' : ''}" data-v="value">市值與成本</button><button class="seg-btn ${as.stk.mode === 'price' ? 'active' : ''}" data-v="price">股價與均價</button></div>
         <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>Buy</span><span><i class="d2"></i>Sell</span>
           <button class="stk-cal${as.stk.range.range !== 'all' ? ' on' : ''}" id="stk-cal" aria-label="選擇走勢範圍，目前：${rangeText || '全部'}">${rangeText ? `<em>${rangeText}</em>` : ''}${CAL_SVG}</button></div>
         <div class="stk-host" id="stk-host"></div>
+        <div class="stk-note" id="stk-note"></div>
       </div>
       <div class="gd-lh"><span>交易紀錄 ${txs.length} 筆</span></div>
       <div class="card stk-txs">${txRows}</div>`;
@@ -1920,6 +1961,7 @@ App.Views = (function () {
     root.querySelector('.gd-back').addEventListener('click', () => { ctx.close(); ctx.render(); });
     root.querySelector('#stk-more').addEventListener('click', () => openStockMenu(sym, rerender));
     root.querySelectorAll('#stk-mode .seg-btn').forEach(b => b.addEventListener('click', () => { as.stk.mode = b.dataset.v; rerender(); }));
+    maskAmounts(root);
     root.querySelectorAll('.stk-tx').forEach(b => b.addEventListener('click', () => {
       const tx = S.getTransactions().find(t => t.id === b.dataset.id);
       if (!tx) return;
@@ -1929,7 +1971,7 @@ App.Views = (function () {
 
     // 走勢：有快取直接畫；否則抓歷史價（抓完若還在這一頁就重畫）
     const host = root.querySelector('#stk-host');
-    const key = sym + '|' + txs.length + '|' + txs.reduce((s, t) => s + t.shares * t.price, 0).toFixed(2) + '|' + U.isoDate();
+    const key = sym + '|' + txs.length + '|' + txs.reduce((s, t) => s + t.shares * t.price, 0).toFixed(2) + '|' + txs.reduce((s, t) => s + t.time, 0) + '|' + U.isoDate();   // 交易（含日期）有變就重算
     const st = as.stk;
     const draw = data => {
       const pts = applyRange(data.points, st.range), n = pts.length;   // 只畫所選範圍
@@ -1940,15 +1982,20 @@ App.Views = (function () {
       const multiYear = n > 0 && pts[0].date.slice(0, 4) !== pts[n - 1].date.slice(0, 4);
       const lab = iso => multiYear ? iso.slice(2, 4) + '/' + (+iso.slice(5, 7)) : (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10));
       const xLabels = n < 2 ? [] : [0, 1, 2, 3, 4].map(k => Math.round(k * (n - 1) / 4)).filter((x, i, a) => a.indexOf(x) === i).map(idx => ({ idx, label: lab(pts[idx].date) }));
+      const hide = value && S.getPrivacy();   // 隱藏金額：市值走勢的數字不顯示（線形照畫）
       App.Charts.compareChart(host, series, {
         aLabel: value ? '市值' : '股價', bLabel: value ? '成本' : '均價', height: 220, xLabels,
-        valueFmt: x => value ? 'NT$ ' + U.fmtKMBB(x) : cur + U.formatPrice(x),
+        valueFmt: x => hide ? '＊＊＊＊' : value ? 'NT$ ' + U.fmtKMBB(x) : cur + U.formatPrice(x),
         marks: data.trades.filter(t => pos[t.date] != null).map(t => ({ idx: pos[t.date], type: t.type, text: `${t.type === 'BUY' ? 'Buy' : 'Sell'} ${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}` })),
-        extremeFmt: x => value ? U.fmtKMBB(x) : cur + U.formatPrice(x),   // 主線的最高／最低點標示
+        extremeFmt: x => hide ? '' : value ? U.fmtKMBB(x) : cur + U.formatPrice(x),   // 主線的最高／最低點標示
       });
+      if (hide) host.querySelectorAll('svg text[text-anchor="end"]').forEach(t => { if (!t.classList.contains('ch-mark')) t.textContent = ''; });   // Y 軸刻度
+      const note = root.querySelector('#stk-note');
+      if (note) note.textContent = ent && ent.stale ? `目前連不上網路，顯示的是 ${(+ent.asOf.slice(5, 7))}/${(+ent.asOf.slice(8, 10))} 抓到的資料` : '';
     };
     root.querySelector('#stk-cal').addEventListener('click', () => openRangeDialog(as.stk.range, U.isoDate(new Date(txs[txs.length - 1].time)), r => { as.stk.range = r; rerender(); }));
-    if (st.key === key && st.data) draw(st.data);
+    const ent = st.cache[sym] && st.cache[sym].key === key ? st.cache[sym] : null;
+    if (ent) draw(ent.data);
     else if (st.error === key) {
       host.innerHTML = '<div class="chart-empty">走勢載入失敗<br><button class="cal-retry" id="stk-retry">點此重試</button></div>';
       host.querySelector('#stk-retry').addEventListener('click', () => { st.error = null; rerender(); });
@@ -1957,7 +2004,7 @@ App.Views = (function () {
       if (st.loading !== key) {
         st.loading = key;
         fetchSymbolSeries(sym)
-          .then(data => { st.key = key; st.data = data; st.error = null; })
+          .then(r => { st.cache[sym] = { key, data: r.data, asOf: r.asOf, stale: r.stale }; st.error = null; })
           .catch(e => { console.error(e); st.error = key; })
           .then(() => { st.loading = null; if (ctx.get() === sym && root.querySelector('#stk-host')) rerender(); });
       }
@@ -1997,7 +2044,8 @@ App.Views = (function () {
     ]);
     const failed = [twH, usH, crH].reduce((a, h) => a.concat(h._failed || []), []);
     if (failed.length) throw new Error('歷史價格抓取失敗：' + failed.join('、'));   // 不拿成本估算當成真的走勢／損益
-    return C.buildGroupSeries(symbols, Object.assign({}, twH, usH, crH), S.getFxRate());
+    const fx = us.length || cr.length ? await fxHistory(firstDate) : null;          // 美股／加密：各日用當天匯率
+    return C.buildGroupSeries(symbols, Object.assign({}, twH, usH, crH), fx || S.getFxRate());
   }
   async function groupTrendPage(root, gid) {
     const g = S.getGroups().find(x => x.id === gid);

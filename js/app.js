@@ -3,7 +3,7 @@
  * ======================================================================= */
 (function () {
   const V = App.Views, S = App.Store, C = App.Calc, UI = App.UI, Api = App.Api;
-  App.VERSION = 'v175';
+  App.VERSION = 'v176';
 
   const TAB_ORDER = ['assets', 'portfolio', 'report', 'history', 'settings'];
   // 記住當前分頁，避免重新整理/下拉時跳回資產
@@ -224,7 +224,9 @@
       UI.toast(`抓不到 ${failed.slice(0, 3).join('、')}${failed.length > 3 ? ' 等 ' + failed.length + ' 檔' : ''} 的歷史價格，未重建（原有走勢保留），請稍後再試`, 'error');
       return 0;
     }
-    const n = C.rebuildSnapshots(Object.assign({}, twHist, usHist, cryptoHist), S.getFxRate(), futHist);
+    // 美股／加密各日用當天匯率（抓不到歷史匯率 → 退回全部用目前匯率，和以前一樣）
+    const fxHist = usCodes.length || cryptoCodes.length ? await Api.fetchFxHistory(firstDate) : [];
+    const n = C.rebuildSnapshots(Object.assign({}, twHist, usHist, cryptoHist), fxHist.length ? fxHist : S.getFxRate(), futHist);
     C.saveTodaySnapshot();          // 今天用即時價覆蓋
     if (App.Sync) App.Sync.markDirty();
     renderCurrent();

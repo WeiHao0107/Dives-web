@@ -376,27 +376,89 @@ App.Api = (function () {
   }
 
   // 歷史日線（USD）：{code: [{date, close}]}；免費層最多 365 天
-  async function fetchCryptoHistory(codes, startDate) {
-    const out = {};
-    const days = Math.min(365, Math.ceil((Date.now() - new Date(startDate + 'T00:00:00+08:00').getTime()) / 86400000) + 2);
-    for (const c of codes) {
-      out[c] = [];
-      const id = await cgResolve(c);
-      if (!id) continue;
-      try {
-        const j = await fetchJson(CG + '/coins/' + encodeURIComponent(id) + '/market_chart?vs_currency=usd&days=' + days + '&interval=daily');
-        const seen = new Set();
-        const rows = [];
-        for (const [ms, price] of (j.prices || [])) {
-          const d = U.isoDate(new Date(ms));
-          if (seen.has(d) || !(price > 0)) continue;
-          seen.add(d); rows.push({ date: d, close: price });
-        }
-        rows.sort((a, b) => a.date < b.date ? -1 : 1);
-        out[c] = rows;
-      } catch (e) { console.warn('CoinGecko history failed', c, e); markFailed(out, c); }
+  // Binance 公開行情（免金鑰、可跨網域）：<代號>USDT 日線收盤。每次最多 1000 根，往後翻頁到今天
+  //   查無此交易對 / 連不上 → 丟錯（由呼叫端決定要不要算失敗）
+  function parseBinanceKlines(rows) {
+    const out = [];
+    for (const r of rows || []) {
+      const close = U.parseNum(r[4]);
+      if (r[0] > 0 && close > 0) out.push({ date: U.isoDate(new Date(r[0])), close });
     }
     return out;
+  }
+  async function fetchBinanceDaily(code, startDate) {
+    let from = new Date(startDate + 'T00:00:00Z').getTime();
+    const rows = [], seen = new Set();
+    for (let page = 0; page < 6; page++) {   // 6 頁 ≈ 16 年
+      const j = await fetchJson('https://data-api.binance.vision/api/v3/klines?symbol=' + encodeURIComponent(code.toUpperCase() + 'USDT') + '&interval=1d&limit=1000&startTime=' + from);
+      if (!Array.isArray(j)) throw new Error('Binance: ' + ((j && j.msg) || 'bad response'));
+      for (const r of parseBinanceKlines(j)) if (!seen.has(r.date)) { seen.add(r.date); rows.push(r); }
+      if (j.length < 1000) break;
+      from = j[j.length - 1][0] + 86400000;
+    }
+    return rows.sort((x, y) => x.date < y.date ? -1 : 1);
+  }
+  // 合併兩個來源：近期用 primary（CoinGecko），它涵蓋不到的較早日期用 older（Binance）補
+  function mergeHistory(primary, older) {
+    if (!primary.length) return older.slice();
+    const first = primary[0].date;
+    return older.filter(r => r.date < first).concat(primary);
+  }
+  async function fetchCryptoHistory(codes, startDate) {
+    const out = {};
+    const spanDays = Math.ceil((Date.now() - new Date(startDate + 'T00:00:00+08:00').getTime()) / 86400000) + 2;
+    const days = Math.min(365, spanDays);
+    for (const c of codes) {
+      out[c] = [];
+      let cg = null;
+      try {
+        const id = await cgResolve(c);
+        if (id) {
+          const j = await fetchJson(CG + '/coins/' + encodeURIComponent(id) + '/market_chart?vs_currency=usd&days=' + days + '&interval=daily');
+          const seen = new Set();
+          const rows = [];
+          for (const [ms, price] of (j.prices || [])) {
+            const d = U.isoDate(new Date(ms));
+            if (seen.has(d) || !(price > 0)) continue;
+            seen.add(d); rows.push({ date: d, close: price });
+          }
+          rows.sort((a, b) => a.date < b.date ? -1 : 1);
+          cg = rows;
+        }
+      } catch (e) { console.warn('CoinGecko history failed', c, e); }
+      // 需要 365 天以前的資料，或 CoinGecko 這次沒拿到 → 用 Binance 補
+      let bn = null;
+      if (spanDays > 365 || !cg || !cg.length) {
+        try { bn = await fetchBinanceDaily(c, startDate); } catch (e) { console.warn('Binance history failed', c, e); }
+      }
+      if (cg && cg.length) out[c] = bn ? mergeHistory(cg, bn) : cg;
+      else if (bn && bn.length) out[c] = bn;
+      else markFailed(out, c);
+    }
+    return out;
+  }
+
+  // ---- 美元兌台幣歷史匯率（FinMind TaiwanExchangeRate：即期買賣的中間價；沒有即期就用現金）----
+  //   一天只抓一次（本機快取）；抓不到 → 回傳快取（可能較舊）或 []，呼叫端會退回用目前匯率
+  function parseFxHistory(rows) {
+    const out = [];
+    for (const r of rows || []) {
+      const b = U.parseNum(r.spot_buy), s = U.parseNum(r.spot_sell), cb = U.parseNum(r.cash_buy), cs = U.parseNum(r.cash_sell);
+      const rate = b > 0 && s > 0 ? (b + s) / 2 : cb > 0 && cs > 0 ? (cb + cs) / 2 : null;
+      if (r.date && rate > 0) out.push({ date: r.date, rate });
+    }
+    return out.sort((x, y) => x.date < y.date ? -1 : 1);
+  }
+  async function fetchFxHistory(startDate) {
+    const today = U.isoDate();
+    const c = S.getFxHist();
+    if (c && c.day === today && c.from <= startDate && c.rows.length) return c.rows;
+    try {
+      const from = c && c.from < startDate ? c.from : startDate;   // 不縮短已有的範圍
+      const rows = parseFxHistory(fmData(await fetchJson(fmUrl({ dataset: 'TaiwanExchangeRate', data_id: 'USD', start_date: from }))));
+      if (rows.length) { S.setFxHist({ day: today, from, rows }); return rows; }
+    } catch (e) { console.warn('fx history failed', e); }
+    return c ? c.rows : [];
   }
 
   // ---- 台指期貨（FinMind TaiwanFuturesDaily，免金鑰；日盤結算價）----
@@ -624,6 +686,6 @@ App.Api = (function () {
     return results.slice(0, 30);
   }
 
-  return { fetchText, fetchJson, unwrapJina, misQuote, keepNewer, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchUsHistory, fetchDailySeries, fetchTwDividends, fetchUsDividends, fetchTwRealtime, fetchUsQuote, fetchCryptoQuotes, fetchCryptoHistory, cacheCgId, fetchFx, refreshPrices, searchSymbols, finnhubKey,
+  return { fetchFxHistory, parseFxHistory, parseBinanceKlines, mergeHistory, fetchText, fetchJson, unwrapJina, misQuote, keepNewer, loadTwUniverse, fetchTwPrice, fetchTwHistory, fetchUsHistory, fetchDailySeries, fetchTwDividends, fetchUsDividends, fetchTwRealtime, fetchUsQuote, fetchCryptoQuotes, fetchCryptoHistory, cacheCgId, fetchFx, refreshPrices, searchSymbols, finnhubKey,
     fetchFuturesDaily, fetchFuturesHistory, refreshFutures, fetchTaifexMargins };
 })();

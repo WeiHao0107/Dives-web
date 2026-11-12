@@ -58,6 +58,8 @@ App.Futures = (function () {
       feePerLot: Object.assign({}, DEFAULTS.feePerLot, raw.feePerLot || {}),
       alerts: Object.assign({}, DEFAULTS.alerts, raw.alerts || {}),
       trades: Array.isArray(raw.trades) ? raw.trades : [],
+      // 有日期的入出金紀錄 { id, time, amount(＋入金／−出金), src? }——由對帳單匯入；手動在帳戶上增減的不在這裡
+      flows: Array.isArray(raw.flows) ? raw.flows : [],
     };
   }
   function saveState(st) { S.setFutures(st); }
@@ -228,17 +230,52 @@ App.Futures = (function () {
   function realizedOf(trades, id) { const ev = replay(trades).events.find(e => e.tradeId === id); return ev ? ev.realizedPnl : 0; }
 
   // 新增交易：tax 未給則自動算；cash = 已實現 − 手續費 − 稅（有連結帳戶才套用）
-  function addTrade({ contract, month, side, lots, price, fee, tax, time, rollId, note }) {
+  function addTrade({ contract, month, side, lots, price, fee, tax, time, rollId, note, src }) {
     const st = getState();
     const t = { id: S.uuid(), contract, month: String(month), side: side === 'SELL' ? 'SELL' : 'BUY', lots: +lots, price: +price,
       fee: r2(+fee || 0), tax: tax != null ? r2(+tax) : taxOf(contract, +price, +lots), time: time || Date.now() };
     if (rollId) t.rollId = rollId;
     if (note) t.note = note;
+    if (src) t.src = src;
     const err = validateTrade(t); if (err) return { ok: false, msg: err };
     const oldSum = cashSum(st.trades);
     st.trades = [...st.trades, t];
     resyncCash(st, oldSum);
     return { ok: true, trade: t, realized: realizedOf(st.trades, t.id) };
+  }
+  // 入出金（有日期）：amount ＋入金／−出金。adjust=true → 同時加減保證金帳戶餘額；
+  //   adjust=false → 只記錄日期（餘額已經手動調過，補記這筆是為了年化報酬與歷史餘額算得準）
+  function addCashFlow({ amount, time, src, adjust }) {
+    const st = getState();
+    amount = r2(+amount || 0);
+    if (!amount) return { ok: false, msg: '金額不可為 0' };
+    if (!st.accountId || !S.getCashAccounts().some(a => a.id === st.accountId)) return { ok: false, msg: '尚未連結保證金帳戶（期貨 › 設定）' };
+    const flow = { id: S.uuid(), time: time || Date.now(), amount };
+    if (src) flow.src = src;
+    st.flows = [...st.flows, flow];
+    saveState(st);
+    if (adjust !== false) S.adjustCashBalance(st.accountId, amount);
+    return { ok: true, flow };
+  }
+  // 期貨的資金流（供年化報酬）：{ time, amount }，投入為負、取回為正；最後一筆是目前權益數。
+  //   紀錄以外的入金（手動調餘額）＝ 餘額 − 已實現淨額 − 有紀錄的入出金，當成第一筆交易那天投入。
+  //   沒連結保證金帳戶 → 不知道本金，回傳 []
+  function xirrFlows(prices, nowMs) {
+    const st = getState();
+    const acct = st.accountId ? S.getCashAccounts().find(a => a.id === st.accountId) : null;
+    if (!acct || (!st.trades.length && !st.flows.length)) return [];
+    const now = nowMs || Date.now();
+    const sum = summary(st, prices || {}, null);
+    const realizedNet = cashSum(st.trades.map(t => (t.cash != null ? t : Object.assign({}, t, { cash: 0 }))));
+    const recorded = st.flows.reduce((a, x) => a + x.amount, 0);
+    const implied = r2((acct.balance || 0) - realizedNet - recorded);
+    const first = Math.min(now, ...st.trades.map(t => t.time), ...st.flows.map(x => x.time));
+    const out = [];
+    if (implied > 0.5) out.push({ time: first, amount: -implied });
+    else if (implied < -0.5) out.push({ time: now, amount: -implied });   // 沒紀錄的出金：時間不明，算在現在
+    for (const x of st.flows) out.push({ time: Math.min(x.time, now), amount: -x.amount });
+    out.push({ time: now, amount: (acct.balance || 0) + (sum.unrealized || 0) });
+    return out;
   }
   function deleteTrade(id) {
     const st = getState();
@@ -347,6 +384,6 @@ App.Futures = (function () {
     return { price: q.price, dailyChange: q.prevClose != null ? q.price - q.prevClose : 0, prevClose: q.prevClose };
   }
 
-  return { parseYahooFutures, realtimeQuote, dayPnlOf, MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
+  return { addCashFlow, xirrFlows, parseYahooFutures, realtimeQuote, dayPnlOf, MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
     addTrade, deleteTrade, updateTrade, rollover, parseTaifexMargins, parseFuturesDaily };
 })();
