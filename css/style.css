@@ -402,7 +402,7 @@ input, select { font-family: inherit; font-size: 15px; }
 .nw-add:active { transform: scale(0.93); }
 .ga-item b { display: block; font-size: 15px; }
 .ga-item .ga-sub { display: block; font-size: 12px; color: var(--sub); margin-top: 2px; }
-.nw-cap { font-size: 14px; color: var(--sub); }
+.nw-cap { font-size: 14px; font-weight: 600; color: var(--text); }   /* 灰色細字在 iPhone 上看起來發糊 → 用正文色、加粗 */
 .nw-num { font-size: clamp(24px, 9.2vw, 36px); font-weight: 800; letter-spacing: -0.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nw-open { flex: 1 1 auto; min-width: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .nw-open:active { opacity: 0.6; }
