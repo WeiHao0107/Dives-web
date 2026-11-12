@@ -1050,10 +1050,10 @@ App.Views = (function () {
   function autoGran(fromIso, toIso) {
     if (!fromIso || !toIso) return 'day';
     const days = Math.round((Date.parse(toIso + 'T12:00:00+08:00') - Date.parse(fromIso + 'T12:00:00+08:00')) / 86400000) + 1;
-    if (days <= 40) return 'day';
-    if (days <= 200) return 'week';
-    if (days <= 1100) return 'month';
-    return 'year';
+    // 走勢折線盡量用每日資料：分桶只取每週／每月最後一天，會把期間內真正的高低點（含 ATH）吃掉
+    if (days <= 800) return 'day';
+    if (days <= 3650) return 'week';
+    return 'month';
   }
   // X 軸標籤：稀疏到 ~7 個避免擠在一起；跨年份自動帶年份
   function chartLabels(buckets, gran) {
