@@ -1737,9 +1737,12 @@ App.Views = (function () {
     const bigCls = gTotal >= 1e9 ? ' xs' : gTotal >= 1e8 ? ' sm' : '';
     const chev = up => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${up ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg>`;
     // 展開：左＝市值＋今日漲跌；右＝目前損益＋報酬率（兩邊同一種排法）；下面一行＝已實現（可點）與含已實現合計
-    // 收合：只留市值一列
+    // 收合：一列——市值，加上目前損益與報酬率
     const heroHtml = !topOpen
-      ? `<button class="card gd-mini" id="gd-fold" aria-label="展開群組摘要" aria-expanded="false"><span>市值 (TWD)</span><b class="gd-big${bigCls}">${U.fmtWhole(gTotal)}</b><i>${chev(false)}</i></button>`
+      ? `<button class="card gd-mini" id="gd-fold" aria-label="展開群組摘要" aria-expanded="false">
+          <div class="gd-ml"><span>市值 (TWD)</span><b class="gd-big${bigCls}">${U.fmtWhole(gTotal)}</b></div>
+          ${showPnl ? `<div class="gd-mr" style="color:${colorOf(gp.unrealizedTwd)}"><b>${compact(gp.unrealizedTwd)}</b>${gp.unrealizedPct != null ? `<em>${U.fmtPct(gp.unrealizedPct)}</em>` : ''}</div>` : ''}
+          <i>${chev(false)}</i></button>`
       : `<div class="gd-hero">
       <div class="gd-blk">
         <div class="gd-cap">市值 (TWD)</div>

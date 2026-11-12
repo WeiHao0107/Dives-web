@@ -597,9 +597,13 @@ input, select { font-family: inherit; font-size: 15px; }
 /* 收合／展開：只有圖示 */
 .gd-fold { display: flex; justify-content: center; align-items: center; width: 100%; height: 30px; margin: -4px 0 4px; color: var(--sub); -webkit-tap-highlight-color: transparent; }
 .gd-fold:active, .gd-mini:active { opacity: 0.55; }
-.gd-mini { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 12px; padding: 12px 12px 12px 14px; text-align: left; color: var(--text); -webkit-tap-highlight-color: transparent; }
-.gd-mini span { font-size: 12.5px; font-weight: 600; color: var(--sub); white-space: nowrap; }
-.gd-mini .gd-big { flex: 1; min-width: 0; font-size: 20px; text-align: right; }
+.gd-mini { display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 12px; padding: 11px 12px 11px 14px; text-align: left; color: var(--text); -webkit-tap-highlight-color: transparent; }
+.gd-ml { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.gd-ml span { font-size: 12px; font-weight: 600; color: var(--sub); white-space: nowrap; }
+.gd-mini .gd-big { font-size: 20px; line-height: 1.25; }
+.gd-mr { flex: none; display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gd-mr b { font-size: 16px; font-weight: 800; line-height: 1.25; letter-spacing: -0.3px; }
+.gd-mr em { font-style: normal; font-size: 12px; font-weight: 700; }
 .gd-mini i { flex: none; display: flex; color: var(--sub); }
 .gd-pl { font-size: 11.5px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 /* 歷史頁群組模式的標題列（返回鈕＋群組名） */
