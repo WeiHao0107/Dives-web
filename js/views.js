@@ -1182,13 +1182,12 @@ App.Views = (function () {
     const dayPct = Math.abs(prevNet) > 1e-9 ? dayChange / Math.abs(prevNet) * 100 : 0;
     const dayArrow = dayChange > 0 ? '▲' : dayChange < 0 ? '▼' : '–';
     const lev = S.getLeverage().show ? C.leverageSummary() : null; // 槓桿倍率（設定開啟才算）
-    // ATH（歷史最高淨資產）：至少要有前一天的紀錄才顯示。目前就在歷史新高 → 數字金色特效（athNow），這行改成「突破歷史新高」說明
+    // ATH（歷史最高淨資產）：至少要有前一天的紀錄才顯示。目前就在歷史新高 → 數字金色特效（athNow），數字右邊加「突破歷史新高」標籤
     const ath = S.getSnapshots().length >= 2 ? C.athInfo(sum.netWorth) : null;
     const fmtAthDate = iso => (iso.slice(0, 4) === U.isoDate().slice(0, 4) ? '' : iso.slice(0, 4) + '/') + (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10));
     const athNow = !!(ath && ath.isToday);
-    // 突破時：說明這是歷史新高，並列出超越前高多少、前高在哪天
-    const athHtml = !ath ? '' : athNow
-      ? `<div class="nw-ath nw-ath-hit"><span class="nw-ath-badge">突破歷史新高</span>${ath.prev ? `<span>超越 ${fmtAthDate(ath.prev.date)} 前高 <b>+${ath.prev.abovePct.toFixed(2)}%</b></span>` : ''}</div>`
+    // 突破時：數字右邊放「突破歷史新高」標籤，下方不顯示 ATH 這行
+    const athHtml = !ath || athNow ? ''
       : `<div class="nw-ath">ATH <b class="nw-ath-amt">${U.fmtWhole(ath.value)}</b> · ${fmtAthDate(ath.date)} · 距高點 <b>${ath.drawdownPct.toFixed(1)}%</b></div>`;
     // 特效的動畫相位用時間對齊（負的 animation-delay）：頁面每次重繪都會重建 DOM，不對齊的話光澤會一直跳回起點
     const athAttr = athNow ? ` style="--ath-d:-${Date.now() % 14400}ms"` : '';
@@ -1197,7 +1196,7 @@ App.Views = (function () {
     const topHtml = `<div class="nw-hero${athNow ? ' ath' : ''}"${athAttr}>
       <div class="nw-open" id="nw-open">
         <div class="nw-cap">我的淨資產 (TWD)${eyeBtnHtml('as-eye')}</div>
-        <div class="nw-numrow"><div class="nw-num">${U.fmtWhole(sum.netWorth)}</div>${athSparks}</div>
+        <div class="nw-numrow"><div class="nw-numwrap"><div class="nw-num">${U.fmtWhole(sum.netWorth)}</div>${athSparks}</div>${athNow ? '<span class="nw-ath-badge">突破歷史新高</span>' : ''}</div>
         <div class="nw-day"><span style="color:${UI.pnlColor(dayChange)}">${dayArrow} ${U.fmtWhole(Math.abs(dayChange))} (${Math.abs(dayPct).toFixed(2)}%)</span>${lev ? `<button class="nw-lev" id="as-lev">槓桿 ${lev.ratio == null ? '--' : lev.ratio.toFixed(2) + '×'}</button>` : ''}</div>
         ${athHtml}
       </div>
