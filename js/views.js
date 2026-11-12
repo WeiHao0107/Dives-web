@@ -1911,7 +1911,6 @@ App.Views = (function () {
     const name = meta.alias || (meta.name && meta.name !== sym ? meta.name : '');
     const fact = (k, val) => `<div><span>${k}</span><b>${val}</b></div>`;
     const rangeText = rangeLabel(as.stk.range);
-    const hasReal = Math.abs(gp.realizedTwd) >= 0.5;
 
     const topHtml = `<div class="gd-head">
       <button class="gd-back" aria-label="返回">‹</button>
@@ -1945,7 +1944,7 @@ App.Views = (function () {
       <div class="card stk-facts">
         ${fact('持有', p ? U.formatShares(p.shares) + shareUnit(mk) : '0')}${fact('均價', p ? cur + U.formatPrice(p.avgCost) : '--')}${fact('現價', p && p.lastPrice != null ? cur + U.formatPrice(p.lastPrice) : '--')}${fact('成本', `<i class="pv">${U.fmtBanner(gp.costTwd)}</i>`)}
       </div>
-      ${hasReal ? `<div class="gd-sub"><span>已實現 <b class="pv" style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></span><span>含已實現合計 <b class="pv" style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span></div>` : ''}
+      ${`<div class="gd-sub"><span>已實現 <b class="pv" style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></span><span>含已實現合計 <b class="pv" style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span></div>`}
       <div class="card stk-chart">
         <div class="seg seg-wide" id="stk-mode"><button class="seg-btn ${as.stk.mode === 'value' ? 'active' : ''}" data-v="value">市值與成本</button><button class="seg-btn ${as.stk.mode === 'price' ? 'active' : ''}" data-v="price">股價與均價</button></div>
         <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>Buy</span><span><i class="d2"></i>Sell</span>
