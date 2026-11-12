@@ -3,7 +3,7 @@
  * ======================================================================= */
 (function () {
   const V = App.Views, S = App.Store, C = App.Calc, UI = App.UI, Api = App.Api;
-  App.VERSION = 'v163';
+  App.VERSION = 'v164';
 
   const TAB_ORDER = ['assets', 'portfolio', 'report', 'history', 'settings'];
   // 記住當前分頁，避免重新整理/下拉時跳回資產
@@ -48,7 +48,7 @@
     try { sessionStorage.setItem('dives_tab', id); } catch (e) {}
     renderCurrent();
   }
-  function goTab(id) { if (id === 'assets' && V.resetAssetsNav) V.resetAssetsNav(); if (id === 'report' && V.resetReportNav) V.resetReportNav(); if (id === 'portfolio' && V.resetPortfolioNav) V.resetPortfolioNav(); if (id === 'settings' && V.resetSettingsNav) V.resetSettingsNav(); switchTab(id); }
+  function goTab(id) { if (id === 'assets' && V.resetAssetsNav) V.resetAssetsNav(); if (id === 'report' && V.resetReportNav) V.resetReportNav(); if (id === 'portfolio' && V.resetPortfolioNav) V.resetPortfolioNav(); if (id === 'settings' && V.resetSettingsNav) V.resetSettingsNav(); if (id === 'history' && V.resetHistoryNav) V.resetHistoryNav(); switchTab(id); }
 
   // 左右滑：互動式換頁（內容跟著手指移動，放開時吸附到新頁或回彈）
   function initSwipe() {
@@ -567,6 +567,7 @@
         if (b.dataset.tab === 'report' && V.resetReportNav) V.resetReportNav();
         if (b.dataset.tab === 'portfolio' && V.resetPortfolioNav) V.resetPortfolioNav();
         if (b.dataset.tab === 'settings' && V.resetSettingsNav) V.resetSettingsNav();
+        if (b.dataset.tab === 'history' && V.resetHistoryNav) V.resetHistoryNav();   // 直接點「歷史」→ 離開群組模式
         switchTab(b.dataset.tab);
       }));
 

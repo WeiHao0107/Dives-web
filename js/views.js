@@ -563,7 +563,17 @@ App.Views = (function () {
 
   /* ===================== 歷史 ===================== */
   // txFilter/search：交易紀錄篩選；statScope：報表統計卡的「今年/歷史」切換
-  const hist = { txFilter: 'all', search: '', type: 'all', from: null, to: null }; // type:all|buy|sell；from/to:日期區間
+  const hist = { txFilter: 'all', search: '', type: 'all', from: null, to: null, group: null, prev: null }; // type:all|buy|sell；from/to:日期區間
+  // group：只看某個群組（由群組頁「已實現」進來）；prev：進來前的篩選，返回時還原
+  // 由群組頁跳到歷史頁：只看這個群組的賣出（＝已實現損益的明細）。資產頁仍停在群組頁，返回就回到原畫面
+  function openGroupSells(gid) {
+    if (!hist.group) hist.prev = { txFilter: hist.txFilter, search: hist.search, type: hist.type, from: hist.from, to: hist.to };
+    Object.assign(hist, { txFilter: 'all', search: '', type: 'sell', from: null, to: null, group: gid });
+    App.switchTab('history');
+  }
+  function leaveGroupHist() { if (hist.prev) Object.assign(hist, hist.prev); hist.group = null; hist.prev = null; }
+  // 直接點底部「歷史」分頁 → 回到一般的歷史頁（不帶群組篩選）
+  function resetHistoryNav() { if (hist.group) leaveGroupHist(); }
 
   // 歷史頁：僅交易紀錄（統計已移至報表；趨勢已由各類別走勢圖取代）
   function history(root) {
@@ -724,7 +734,12 @@ App.Views = (function () {
     events.sort((a, b) => b.time - a.time);
 
     const isDivKind = e => e.kind === 'cashdiv' || e.kind === 'stockdiv';
+    // 群組模式：只留該群組的標的（群組被刪掉 → 自動離開群組模式）
+    let grp = hist.group ? S.getGroups().find(g => g.id === hist.group) : null;
+    if (hist.group && !grp) leaveGroupHist();
+    const gmapH = grp ? S.getGroupMap() : null;
     const filtered = events.filter(e => {
+      if (grp && gmapH[e.symbol] !== grp.id) return false;
       if (hist.type === 'buy' && !(e.kind === 'tx' && e.tx.type === 'BUY')) return false;
       if (hist.type === 'sell' && !(e.kind === 'tx' && e.tx.type === 'SELL')) return false;
       if (hist.type === 'div' && !isDivKind(e)) return false;
@@ -756,7 +771,8 @@ App.Views = (function () {
     // 搜尋 + 漏斗篩選 + 統計摘要（總投入／總獲利；有股息時多一格股息）
     const filterOn = hist.type !== 'all' || hist.txFilter !== 'all' || hist.from || hist.to;
     const divCell = totalDiv > 0 ? `<div class="hs-cell"><div class="hs-k">股息</div><div class="hs-v" style="color:${UI.pnlColor(1)}">+${sumCur} ${U.fmtKMBB(totalDiv)}</div></div>` : '';
-    fixedEl.innerHTML = `<div class="tx-bar">
+    const grpBar = grp ? `<div class="hist-grp"><button class="gd-back" id="hist-back" aria-label="返回${esc(grp.name)}">‹</button><div class="hist-grp-t"><b>${esc(grp.name)}</b><span>${hist.type === 'sell' ? '賣出紀錄' : hist.type === 'buy' ? '買入紀錄' : hist.type === 'div' ? '股利紀錄' : '全部紀錄'}</span></div></div>` : '';
+    fixedEl.innerHTML = `${grpBar}<div class="tx-bar">
       <input class="input search" id="tx-search" placeholder="搜尋代碼或名稱" value="${esc(hist.search)}">
       <button class="tx-funnel${filterOn ? ' on' : ''}" id="tx-funnel" aria-label="篩選"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg></button>
     </div>
@@ -822,6 +838,7 @@ App.Views = (function () {
     listHtml += `</div>`;
     scrollEl.innerHTML = listHtml;
 
+    { const hb = fixedEl.querySelector('#hist-back'); if (hb) hb.addEventListener('click', () => { leaveGroupHist(); App.switchTab('assets'); }); }
     const se = fixedEl.querySelector('#tx-search');
     se.addEventListener('input', e => { hist.search = e.target.value; });
     se.addEventListener('change', () => histTx(fixedEl, scrollEl));
@@ -1698,20 +1715,18 @@ App.Views = (function () {
     const gTotal = members.reduce((s, p) => s + mvTwdOf(p, rate), 0);
     // 群組損益：目前（未實現）、已實現（含已賣光仍歸在此群組的標的）、兩者合計
     const gp = C.groupPnl(Object.keys(gmap).filter(sym => gmap[sym] === gid), allPos, rate);
-    const signed = v => (v > 0.5 ? '+' : v < -0.5 ? '-' : '') + U.fmtWhole(Math.abs(v));
-    const pnlCell = (label, v, extra) => `<div class="gd-pc"><span>${label}</span><b style="color:${UI.pnlColor(Math.abs(v) < 0.5 ? 0 : v)}">${signed(v)}</b>${extra || ''}</div>`;
+    // 金額用「萬」精簡顯示；% 放在標題那一行（不另佔一列）。已實現可點 → 歷史頁只看這個群組的賣出
+    const compact = x => Math.abs(x) < 0.5 ? '0' : U.fmtBannerSigned(x);
+    const pnlCell = (label, x, extra, attr) => `<${attr ? 'button' : 'div'} class="gd-pc"${attr || ''}><span>${label}${extra || ''}</span><b style="color:${UI.pnlColor(Math.abs(x) < 0.5 ? 0 : x)}">${compact(x)}</b></${attr ? 'button' : 'div'}>`;
     const pnlHtml = members.length || Math.abs(gp.realizedTwd) >= 0.5 ? `<div class="gd-pnl">
-      ${pnlCell('目前損益', gp.unrealizedTwd, gp.unrealizedPct != null ? `<i style="color:${UI.pnlColor(gp.unrealizedTwd)}">${U.fmtPct(gp.unrealizedPct)}</i>` : '')}
-      ${pnlCell('已實現', gp.realizedTwd)}
+      ${pnlCell('目前損益', gp.unrealizedTwd, gp.unrealizedPct != null ? ` <i style="color:${UI.pnlColor(gp.unrealizedTwd)}">${U.fmtPct(gp.unrealizedPct)}</i>` : '')}
+      ${pnlCell('已實現', gp.realizedTwd, ' <em>›</em>', ' id="gd-realized" aria-label="查看這個群組的賣出紀錄"')}
       ${pnlCell('合計', gp.totalTwd)}
     </div>` : '';
     const basis = S.getPctBasis();
     const denomV = basis === 'group' ? (gTotal || 1) : basis === 'invest' ? sum.investTwd : sum.netWorth;
     members.sort((a, b) => as.detailAsc ? mvTwdOf(a, rate) - mvTwdOf(b, rate) : mvTwdOf(b, rate) - mvTwdOf(a, rate));
     const fmtPctBadge = v => (v >= 9.95 ? Math.round(v) : v.toFixed(v >= 1 ? 0 : 1)) + '%';
-    const updTs = S.getPricesTs();
-    const updDate = updTs ? U.isoDate(new Date(updTs)) : '';
-
     const topHtml = `<div class="gd-head">
       <button class="gd-back" aria-label="返回">‹</button>
       <div class="gd-title">${esc(g.name)}</div>
@@ -1733,6 +1748,8 @@ App.Views = (function () {
     for (const p of members) {
       const mv = mvTwdOf(p, rate);
       const pct = denomV > 1e-9 ? mv / denomV * 100 : 0;
+      // 當前損益（未實現，換算台幣）與報酬率
+      const pl = p.unrealizedPnl * (p.marketValue ? mv / p.marketValue : 1), plPct = p.cost > 1e-9 ? p.unrealizedPnl / p.cost * 100 : null;
       const isUsd = U.normalizeMarketKey(p.market) !== U.Market.tse && U.normalizeMarketKey(p.market) !== U.Market.otc && U.normalizeMarketKey(p.market) !== U.Market.rotc;
       listHtml += `<div class="card gd-row" data-sym="${p.symbol}">
         <span class="pct-badge">${fmtPctBadge(pct)}</span>
@@ -1742,7 +1759,9 @@ App.Views = (function () {
         </div>
         <div class="gd-val">
           <div class="gd-amt">${U.fmtWhole(mv)}</div>
-          ${updDate ? `<div class="gd-date">${updDate}</div>` : ''}
+          ${p.lastPrice != null
+            ? `<div class="gd-pl" style="color:${UI.pnlColor(Math.abs(pl) < 0.5 ? 0 : pl)}">${compact(pl)}${plPct != null ? ' (' + U.fmtPct(plPct) + ')' : ''}</div>`
+            : '<div class="gd-pl" style="color:var(--sub)">尚無報價</div>'}
         </div>
       </div>`;
     }
@@ -1755,6 +1774,7 @@ App.Views = (function () {
       getSel: () => as.groupAllocSel, setSel: k => { as.groupAllocSel = k; }, rerender: () => groupDetail(root, gid),
     });
     root.querySelector('.gd-sort').addEventListener('click', () => { as.detailAsc = !as.detailAsc; assets(root); });
+    { const rb = root.querySelector('#gd-realized'); if (rb) rb.addEventListener('click', () => openGroupSells(gid)); }
     root.querySelector('.gd-trend').addEventListener('click', () => { as.groupTrend = gid; as.gtCache = null; assets(root); });
     root.querySelector('.gd-menu').addEventListener('click', () => openGroupMenu(gid, () => assets(root)));
     root.querySelector('.gd-plus').addEventListener('click', () =>
@@ -3078,7 +3098,7 @@ App.Views = (function () {
     return FEE_RATE[mk === U.Market.us ? 'us' : mk === U.Market.crypto ? 'crypto' : 'tw'];
   }
 
-  return { portfolio, history, report, assets, settings, openTxForm, resetAssetsNav, resetReportNav, resetPortfolioNav, resetSettingsNav,
+  return { portfolio, history, report, assets, settings, openTxForm, resetAssetsNav, resetReportNav, resetPortfolioNav, resetSettingsNav, resetHistoryNav,
     // 共用元件（供 views-futures.js）
     seg, applyRange, autoGran, chartLabels, rangeControlHtml, bindRangeControl, yearControlHtml, bindYearControl, chartRange, openChooser, openMoneyForm, maskAmounts };
 })();

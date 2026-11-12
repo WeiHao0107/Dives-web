@@ -577,13 +577,22 @@ input, select { font-family: inherit; font-size: 15px; }
 .stat-val { text-align: right; min-width: 0; }
 .stat-amt { font-size: 14px; font-weight: 700; white-space: nowrap; }
 .stat-sub { font-size: 11px; color: var(--sub); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 群組損益：目前（未實現）／已實現／合計 */
-.gd-pnl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 2px 12px; padding: 12px 10px; background: var(--card); border-radius: var(--radius); }
-.gd-pc { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+/* 群組損益：目前（未實現）／已實現／合計。兩行：標題（含 %）＋金額（萬） */
+.gd-pnl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 2px 12px; padding: 10px 4px; background: var(--card); border-radius: var(--radius); }
+.gd-pc { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; padding: 0 4px; font: inherit; color: inherit; background: none; }
 .gd-pc + .gd-pc { border-left: 1px solid var(--divider); }
-.gd-pc span { font-size: 11.5px; color: var(--sub); }
-.gd-pc b { font-size: 15px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
-.gd-pc i { font-style: normal; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gd-pc span { font-size: 11.5px; color: var(--sub); white-space: nowrap; }
+.gd-pc span i { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gd-pc span em { font-style: normal; color: var(--chev); }
+.gd-pc b { font-size: 16px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+button.gd-pc { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button.gd-pc:active { opacity: 0.55; }
+.gd-pl { font-size: 11.5px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+/* 歷史頁群組模式的標題列（返回鈕＋群組名） */
+.hist-grp { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.hist-grp-t { display: flex; flex-direction: column; min-width: 0; }
+.hist-grp-t b { font-size: 16px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist-grp-t span { font-size: 12px; color: var(--sub); }
 .gd-total { display: flex; justify-content: flex-end; align-items: center; gap: 6px; font-size: 14px; font-weight: 800; padding: 0 6px 12px; }
 .gd-sort { color: var(--sub); font-size: 12px; padding: 4px 6px; }
 .gd-row { display: flex; align-items: center; gap: 12px; padding: 13px 14px; margin-bottom: 10px; }
