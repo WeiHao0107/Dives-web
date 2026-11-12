@@ -1830,7 +1830,7 @@ App.Views = (function () {
     }, '解散'));
   }
 
-  // 指定持倉的群組
+  // 指定持倉的群組（資產頁群組成員、群組詳情頁點個股）；底部可直接新增這檔的交易
   function openGroupAssign(sym, onDone) {
     const groups = S.getGroups();
     const gm = S.getGroupMap();
@@ -1843,8 +1843,9 @@ App.Views = (function () {
       <input class="input" id="ga-new" placeholder="或建立新群組">
       <button class="btn btn-ghost btn-sm" id="ga-create">建立並加入</button>
     </div>`;
-    const ov = UI.openSheet(esc(sym) + ' 的群組', body, `<button class="btn btn-ghost" id="ga-cancel">關閉</button>`);
+    const ov = UI.openSheet(esc(sym) + ' 的群組', body, `<button class="btn btn-ghost" id="ga-cancel">關閉</button><button class="btn btn-primary" id="ga-tx">新增交易</button>`);
     ov.querySelector('#ga-cancel').addEventListener('click', UI.closeSheet);
+    ov.querySelector('#ga-tx').addEventListener('click', () => { UI.closeSheet(); openTxForm(null, sym); });
     ov.querySelectorAll('.ga-item').forEach(it => it.addEventListener('click', () => {
       const gid = it.dataset.gid;
       const m = S.getGroupMap();
