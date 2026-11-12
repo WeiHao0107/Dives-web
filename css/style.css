@@ -577,23 +577,30 @@ input, select { font-family: inherit; font-size: 15px; }
 .stat-val { text-align: right; min-width: 0; }
 .stat-amt { font-size: 14px; font-weight: 700; white-space: nowrap; }
 .stat-sub { font-size: 11px; color: var(--sub); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 群組頁 Hero：左＝市值＋今日漲跌；右＝目前損益／已實現／合計 */
-.gd-hero { display: flex; align-items: stretch; gap: 12px; padding: 2px 4px 14px; }
-.gd-hl { flex: 1 1 auto; min-width: 0; }
-.gd-cap { font-size: 13px; font-weight: 600; }
-.gd-big { font-size: clamp(22px, 8.2vw, 33px); font-weight: 800; letter-spacing: -0.5px; line-height: 1.15; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* 群組頁上方（可整塊收合）。展開：左＝市值＋今日漲跌、右＝目前損益＋報酬率，兩邊同一種排法 */
+.gd-hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 0 6px; }
+.gd-blk { min-width: 0; }
+.gd-blk.r { flex: none; text-align: right; }
+.gd-cap { font-size: 12.5px; font-weight: 600; color: var(--sub); }
+.gd-big { font-size: clamp(22px, 8.2vw, 31px); font-weight: 800; letter-spacing: -0.6px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .gd-big.sm { font-size: clamp(19px, 6.4vw, 25px); }   /* 億級：字縮小才放得下 */
 .gd-big.xs { font-size: clamp(16px, 5.4vw, 21px); }
-.gd-day { font-size: 13px; font-weight: 700; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-.gd-day span { color: var(--sub); font-weight: 500; font-size: 12px; margin-left: 2px; }
-.gd-hr { flex: none; display: flex; flex-direction: column; justify-content: space-between; gap: 5px; padding-left: 12px; border-left: 1px solid var(--divider); }
-.gd-kv { display: grid; grid-template-columns: auto auto; column-gap: 12px; align-items: baseline; justify-content: space-between; width: 100%; padding: 0; font: inherit; color: inherit; background: none; text-align: left; }
-.gd-kv span { font-size: 12px; color: var(--sub); white-space: nowrap; }
-.gd-kv span em { font-style: normal; color: var(--chev); }
-.gd-kv b { font-size: 15px; font-weight: 800; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
-.gd-kv i { grid-column: 2; font-style: normal; font-size: 11px; font-weight: 700; text-align: right; line-height: 1.1; font-variant-numeric: tabular-nums; }
-button.gd-kv { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-button.gd-kv:active { opacity: 0.55; }
+.gd-mid { font-size: 22px; font-weight: 800; letter-spacing: -0.4px; line-height: 1.2; margin-top: 7px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gd-s { font-size: 13px; font-weight: 700; margin-top: 3px; min-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.gd-s span { color: var(--sub); font-weight: 500; font-size: 12px; }
+/* 已實現（可點）與含已實現合計 */
+.gd-sub { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 12px 0 12px; padding: 10px 14px; background: var(--card); border-radius: 12px; font-size: 13px; color: var(--sub); white-space: nowrap; }
+.gd-sub button { font: inherit; color: inherit; padding: 0; -webkit-tap-highlight-color: transparent; }
+.gd-sub button:active { opacity: 0.55; }
+.gd-sub b { font-size: 14px; font-weight: 800; margin-left: 3px; font-variant-numeric: tabular-nums; }
+.gd-sub i { font-style: normal; color: var(--chev); margin-left: 1px; }
+/* 收合／展開：只有圖示 */
+.gd-fold { display: flex; justify-content: center; align-items: center; width: 100%; height: 30px; margin: -4px 0 4px; color: var(--sub); -webkit-tap-highlight-color: transparent; }
+.gd-fold:active, .gd-mini:active { opacity: 0.55; }
+.gd-mini { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 12px; padding: 12px 12px 12px 14px; text-align: left; color: var(--text); -webkit-tap-highlight-color: transparent; }
+.gd-mini span { font-size: 12.5px; font-weight: 600; color: var(--sub); white-space: nowrap; }
+.gd-mini .gd-big { flex: 1; min-width: 0; font-size: 20px; text-align: right; }
+.gd-mini i { flex: none; display: flex; color: var(--sub); }
 .gd-pl { font-size: 11.5px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
 /* 歷史頁群組模式的標題列（返回鈕＋群組名） */
 .hist-grp { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }

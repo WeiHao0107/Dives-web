@@ -389,7 +389,7 @@ App.Views = (function () {
   const ALLOC_PAL = ['#5B8FD8', '#4FB286', '#E3B341', '#E0675C', '#A07CD0', '#E08E52', '#2BB3B3', '#E86FA8', '#93A23E']; // 前 8 檔＋剛好 9 檔時的第 9 色
   const ALLOC_OTHER = '#B9B3AC';
   const ALLOC_MK_COL = { tw: COL.tw, us: COL.us, crypto: COL.crypto };
-  // cfg：{ open, by, sel, groupId?, title?, headValue?, centerCount? }；headValue＝標題列右側的數值；centerCount＝圓心只放檔數（總額已顯示在別處）；有 groupId → 群組詳情頁的組內分布（只有個股、無切換列）
+  // cfg：{ open, by, sel, groupId?, title?, headValue?, centerCount? }；headValue＝標題列右側的數值；centerCount＝圓心只放檔數（總額已顯示在別處）；noToggle＝卡片本身不能收合；有 groupId → 群組詳情頁的組內分布（只有個股、無切換列）
   function allocCardHtml(cfg) {
     const ui = { open: cfg.open, by: cfg.by || 'symbol' };
     const probe = C.allocation('symbol', 8, cfg.groupId);
@@ -404,7 +404,9 @@ App.Views = (function () {
     }));
     const pctTxt = v => v.toFixed(v >= 10 ? 1 : 1) + '%';
     const icon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9h-9Z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15Z"/></svg>';
-    let html = `<div class="card alloc-card"><button class="alloc-head" id="alloc-toggle"><span class="alloc-ic">${icon}</span><span class="alloc-t">${cfg.title || '持股分布'}</span>${cfg.headValue ? `<b class="alloc-hv alloc-amt">${cfg.headValue}</b>` : ''}<span class="alloc-chev">${ui.open ? '收合 ⌃' : '展開 ⌄'}</span></button>`;
+    const headIn = `<span class="alloc-ic">${icon}</span><span class="alloc-t">${cfg.title || '持股分布'}</span>${cfg.headValue ? `<b class="alloc-hv alloc-amt">${cfg.headValue}</b>` : ''}`;
+    let html = cfg.noToggle ? `<div class="card alloc-card"><div class="alloc-head">${headIn}</div>`
+      : `<div class="card alloc-card"><button class="alloc-head" id="alloc-toggle">${headIn}<span class="alloc-chev">${ui.open ? '收合 ⌃' : '展開 ⌄'}</span></button>`;
     if (!ui.open) {
       html += `<div class="alloc-bar">${slices.map(sl => `<span style="width:${sl.pct}%;background:${sl.color}"></span>`).join('')}</div>
         <div class="alloc-mini">${slices.slice(0, 3).map(sl => `<span><i style="background:${sl.color}"></i>${sl.text} ${Math.round(sl.pct)}%</span>`).join('')}</div></div>`;
@@ -444,8 +446,8 @@ App.Views = (function () {
   // h：{ toggle(), setBy(v), getSel(), setSel(k), rerender() }
   function bindAllocCard(root, h) {
     const t = root.querySelector('#alloc-toggle');
-    if (!t) return;
-    t.addEventListener('click', () => { h.toggle(); h.setSel(null); h.rerender(); });
+    if (!t && !root.querySelector('.alloc-card')) return;
+    if (t) t.addEventListener('click', () => { h.toggle(); h.setSel(null); h.rerender(); });   // noToggle 的卡片沒有這顆鈕
     root.querySelectorAll('[data-alloc-by]').forEach(b => b.addEventListener('click', () => { h.setBy(b.dataset.allocBy); h.setSel(null); h.rerender(); }));
     root.querySelectorAll('.alloc-arc, .alloc-row').forEach(el => el.addEventListener('click', e => {
       e.stopPropagation();
@@ -1730,18 +1732,30 @@ App.Views = (function () {
     const compact = x => Math.abs(x) < 0.5 ? '0' : U.fmtBannerSigned(x);
     const colorOf = x => UI.pnlColor(Math.abs(x) < 0.5 ? 0 : x);
     const showPnl = members.length || Math.abs(gp.realizedTwd) >= 0.5;
-    const heroHtml = `<div class="gd-hero">
-      <div class="gd-hl">
+    // 上方整塊（市值、損益、組內分布）可收合；狀態記在 allocUi.groupOpen（所有群組共用）
+    const topOpen = S.getAllocUi().groupOpen;
+    const bigCls = gTotal >= 1e9 ? ' xs' : gTotal >= 1e8 ? ' sm' : '';
+    const chev = up => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${up ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"/></svg>`;
+    // 展開：左＝市值＋今日漲跌；右＝目前損益＋報酬率（兩邊同一種排法）；下面一行＝已實現（可點）與含已實現合計
+    // 收合：只留市值一列
+    const heroHtml = !topOpen
+      ? `<button class="card gd-mini" id="gd-fold" aria-label="展開群組摘要" aria-expanded="false"><span>市值 (TWD)</span><b class="gd-big${bigCls}">${U.fmtWhole(gTotal)}</b><i>${chev(false)}</i></button>`
+      : `<div class="gd-hero">
+      <div class="gd-blk">
         <div class="gd-cap">市值 (TWD)</div>
-        <div class="gd-big${gTotal >= 1e9 ? ' xs' : gTotal >= 1e8 ? ' sm' : ''}">${U.fmtWhole(gTotal)}</div>
-        <div class="gd-day" style="color:${UI.pnlColor(gDay)}">${gDay > 0 ? '▲' : gDay < 0 ? '▼' : '–'} ${U.fmtWhole(Math.abs(gDay))} (${Math.abs(gDayPct).toFixed(2)}%) <span>今日</span></div>
+        <div class="gd-big${bigCls}">${U.fmtWhole(gTotal)}</div>
+        <div class="gd-s" style="color:${UI.pnlColor(gDay)}">${gDay > 0 ? '▲' : gDay < 0 ? '▼' : '–'} ${U.fmtWhole(Math.abs(gDay))} (${Math.abs(gDayPct).toFixed(2)}%) <span>今日</span></div>
       </div>
-      ${showPnl ? `<div class="gd-hr">
-        <div class="gd-kv"><span>目前損益</span><b style="color:${colorOf(gp.unrealizedTwd)}">${compact(gp.unrealizedTwd)}</b>${gp.unrealizedPct != null ? `<i style="color:${colorOf(gp.unrealizedTwd)}">${U.fmtPct(gp.unrealizedPct)}</i>` : ''}</div>
-        <button class="gd-kv" id="gd-realized" aria-label="查看這個群組的賣出紀錄"><span>已實現 <em>›</em></span><b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></button>
-        <div class="gd-kv"><span>合計</span><b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></div>
+      ${showPnl ? `<div class="gd-blk r">
+        <div class="gd-cap">目前損益</div>
+        <div class="gd-mid" style="color:${colorOf(gp.unrealizedTwd)}">${compact(gp.unrealizedTwd)}</div>
+        <div class="gd-s" style="color:${colorOf(gp.unrealizedTwd)}">${gp.unrealizedPct != null ? U.fmtPct(gp.unrealizedPct) : ''}</div>
       </div>` : ''}
-    </div>`;
+    </div>
+    ${showPnl ? `<div class="gd-sub">
+      <button id="gd-realized" aria-label="查看這個群組的賣出紀錄">已實現 <b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b> <i>›</i></button>
+      <span>含已實現合計 <b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span>
+    </div>` : ''}`;
     const basis = S.getPctBasis();
     const denomV = basis === 'group' ? (gTotal || 1) : basis === 'invest' ? sum.investTwd : sum.netWorth;
     members.sort((a, b) => as.detailAsc ? mvTwdOf(a, rate) - mvTwdOf(b, rate) : mvTwdOf(b, rate) - mvTwdOf(a, rate));
@@ -1759,8 +1773,9 @@ App.Views = (function () {
 
     // 組內分布圓餅（2 檔以上才顯示；分母＝群組合計，不受「投資佔比基準」影響）
     //   市值已在上方 Hero → 圓心只放檔數（centerCount）
-    let listHtml = members.filter(p => mvTwdOf(p, rate) > 0).length >= 2
-      ? allocCardHtml({ open: S.getAllocUi().groupOpen, sel: as.groupAllocSel, groupId: gid, title: '組內分布', centerCount: true }) : '';
+    let listHtml = topOpen && members.filter(p => mvTwdOf(p, rate) > 0).length >= 2
+      ? allocCardHtml({ open: true, sel: as.groupAllocSel, groupId: gid, title: '組內分布', centerCount: true, noToggle: true }) : '';
+    if (topOpen) listHtml += `<button class="gd-fold" id="gd-fold" aria-label="收合群組摘要" aria-expanded="true">${chev(true)}</button>`;
     if (members.length) listHtml += `<div class="gd-lh"><span>持股 ${members.length} 檔</span>${members.length > 1 ? `<button class="gd-sort" aria-label="依市值排序，目前${as.detailAsc ? '由小到大' : '由大到小'}">市值 ${as.detailAsc ? '▲' : '▼'}</button>` : ''}</div>`;
     if (!members.length) {
       listHtml += `<div class="empty" style="padding:40px 16px">此群組尚無持倉<br>點右上 ＋ 買入並加入，或從投資清單指定群組</div>`;
@@ -1790,9 +1805,10 @@ App.Views = (function () {
 
     root.querySelector('.gd-back').addEventListener('click', () => { as.detailGroup = null; as.groupAllocSel = null; assets(root); });
     bindAllocCard(root, {
-      toggle: () => S.setAllocUi({ groupOpen: !S.getAllocUi().groupOpen }), setBy: () => {},
+      toggle: () => {}, setBy: () => {},
       getSel: () => as.groupAllocSel, setSel: k => { as.groupAllocSel = k; }, rerender: () => groupDetail(root, gid),
     });
+    { const fb = root.querySelector('#gd-fold'); if (fb) fb.addEventListener('click', () => { S.setAllocUi({ groupOpen: !topOpen }); as.groupAllocSel = null; groupDetail(root, gid); }); }
     { const sb = root.querySelector('.gd-sort'); if (sb) sb.addEventListener('click', () => { as.detailAsc = !as.detailAsc; assets(root); }); }
     { const rb = root.querySelector('#gd-realized'); if (rb) rb.addEventListener('click', () => openGroupSells(gid)); }
     root.querySelector('.gd-trend').addEventListener('click', () => { as.groupTrend = gid; as.gtCache = null; assets(root); });
