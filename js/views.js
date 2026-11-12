@@ -112,7 +112,7 @@ App.Views = (function () {
       }
       return `<div class="ibx-it${dup[it.id] ? ' dup' : ''}" data-id="${esc(it.id)}">
         <button class="ibx-ck${on ? ' on' : ''}" data-ck="${esc(it.id)}" role="checkbox" aria-checked="${on}" aria-label="選取這筆"></button>
-        <span class="tx-type ${it.side === 'BUY' ? 'buy' : 'sell'}">${it.side === 'BUY' ? '買' : '賣'}</span>
+        <span class="tx-type ${it.side === 'BUY' ? 'buy' : 'sell'}">${it.side === 'BUY' ? 'Buy' : 'Sell'}</span>
         <div class="ibx-main"><div class="ibx-t">${name}${dup[it.id] ? '<span class="ibx-dup">可能已輸入</span>' : ''}</div><div class="ibx-s">${sub}</div>${err ? `<div class="ibx-err">${esc(err)}</div>` : ''}</div>
         <div class="ibx-r">${amt}<span>${md(it.date)}</span></div>
       </div>`;
@@ -540,7 +540,7 @@ App.Views = (function () {
 
   function openSymbolActions(sym) {
     const txs = S.getTransactions().filter(t => t.symbol === sym).sort((a, b) => b.time - a.time);
-    const kindOf = t => t.type === 'BUY' ? ['buy', '買'] : t.type === 'SELL' ? ['sell', '賣'] : ['evt', '配']; // STOCK_DIV = 配股
+    const kindOf = t => t.type === 'BUY' ? ['buy', 'Buy'] : t.type === 'SELL' ? ['sell', 'Sell'] : ['evt', '配']; // STOCK_DIV = 配股
     let rows = txs.map(t => `<div class="tx-mini" data-id="${t.id}">
       <span class="${kindOf(t)[0]}">${kindOf(t)[1]}</span>
       <span>${t.type === 'STOCK_DIV' ? '配股 +' + U.formatShares(t.shares) : U.formatShares(t.shares) + ' @ ' + U.formatPrice(t.price)}</span>
@@ -829,7 +829,7 @@ App.Views = (function () {
           valHtml = `<div class="tx-amt">${cur} ${U.fmtKMBB(cost)}</div>`;
         }
         listHtml += `<div class="tx-row" data-kind="tx" data-id="${t.id}">
-          <span class="tx-type ${t.type === 'BUY' ? 'buy' : 'sell'}">${t.type === 'BUY' ? '買入' : '賣出'}</span>
+          <span class="tx-type ${t.type === 'BUY' ? 'buy' : 'sell'}">${t.type === 'BUY' ? 'Buy' : 'Sell'}</span>
           <div class="tx-main">
             <div class="tx-sym">${t.symbol} <span class="h-name">${name}</span></div>
             <div class="tx-sub">${U.formatShares(t.shares)}${shareUnit(mmap[t.symbol]?.market)} @ ${U.formatPrice(t.price)} · ${dstr}</div>
@@ -1894,7 +1894,7 @@ App.Views = (function () {
       const buy = t.type === 'BUY', rz = !buy ? rzOf[t.id] : null;
       const right = buy ? `NT$ ${U.fmtBanner((t.shares * t.price + (t.fee || 0)) * conv)}`
         : rz ? `<span style="color:${UI.pnlColor(rz.realizedPnl)}">${U.fmtBannerSigned(rz.realizedPnl * conv)}</span>` : `NT$ ${U.fmtBanner(t.shares * t.price * conv)}`;
-      return `<button class="stk-tx" data-id="${t.id}"><span class="tx-type ${buy ? 'buy' : 'sell'}">${buy ? '買' : '賣'}</span><span class="stk-txm"><b>${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}</b><small>${d}</small></span><em>${right}</em></button>`;
+      return `<button class="stk-tx" data-id="${t.id}"><span class="tx-type ${buy ? 'buy' : 'sell'}">${buy ? 'Buy' : 'Sell'}</span><span class="stk-txm"><b>${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}</b><small>${d}</small></span><em>${right}</em></button>`;
     }).join('');
 
     const listHtml = `
@@ -1904,6 +1904,7 @@ App.Views = (function () {
       ${hasReal ? `<div class="gd-sub"><span>已實現 <b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></span><span>含已實現合計 <b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span></div>` : ''}
       <div class="card stk-chart">
         <div class="seg seg-wide" id="stk-mode"><button class="seg-btn ${as.stk.mode === 'value' ? 'active' : ''}" data-v="value">市值與成本</button><button class="seg-btn ${as.stk.mode === 'price' ? 'active' : ''}" data-v="price">股價與均價</button></div>
+        <div class="stk-range">${rangeControlHtml(chartRange, 'stk')}</div>
         <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>Buy</span><span><i class="d2"></i>Sell</span></div>
         <div class="stk-host" id="stk-host"></div>
       </div>
@@ -1927,7 +1928,8 @@ App.Views = (function () {
     const key = sym + '|' + txs.length + '|' + txs.reduce((s, t) => s + t.shares * t.price, 0).toFixed(2) + '|' + U.isoDate();
     const st = as.stk;
     const draw = data => {
-      const pts = data.points, n = pts.length;
+      const pts = applyRange(data.points, chartRange), n = pts.length;   // 只畫所選範圍
+      const pos = {}; pts.forEach((q, i) => { pos[q.date] = i; });
       const value = st.mode === 'value';
       const series = pts.map(q => value ? { date: q.date, a: q.mv, b: q.shares > 0 ? q.cost : null } : { date: q.date, a: q.price, b: q.avgCost });
       // X 軸標籤：平均取 5 個；跨年帶年份
@@ -1937,10 +1939,13 @@ App.Views = (function () {
       App.Charts.compareChart(host, series, {
         aLabel: value ? '市值' : '股價', bLabel: value ? '成本' : '均價', height: 220, xLabels,
         valueFmt: x => value ? 'NT$ ' + U.fmtKMBB(x) : cur + U.formatPrice(x),
-        marks: data.trades.map(t => ({ idx: t.idx, type: t.type, text: `${t.type === 'BUY' ? 'Buy' : 'Sell'} ${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}` })),
+        marks: data.trades.filter(t => pos[t.date] != null).map(t => ({ idx: pos[t.date], type: t.type, text: `${t.type === 'BUY' ? 'Buy' : 'Sell'} ${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}` })),
         extremeFmt: x => value ? U.fmtKMBB(x) : cur + U.formatPrice(x),   // 主線的最高／最低點標示
       });
     };
+    // 範圍切換 → 整頁重繪；改日期 → 只重畫圖（不重建輸入框，原生日期選擇器才不會被關掉）
+    bindRangeControl(root, chartRange, 'stk', [U.isoDate(new Date(txs[txs.length - 1].time)), U.isoDate()],
+      () => stockDetail(root, sym), () => { if (st.key === key && st.data) draw(st.data); });
     if (st.key === key && st.data) draw(st.data);
     else if (st.error === key) {
       host.innerHTML = '<div class="chart-empty">走勢載入失敗<br><button class="cal-retry" id="stk-retry">點此重試</button></div>';
