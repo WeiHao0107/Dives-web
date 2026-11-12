@@ -58,9 +58,16 @@ App.UI = (function () {
     }
     return ov;
   }
+  // 關掉所有還開著的 sheet。前一個 sheet 的關閉動畫（250ms）期間 DOM 裡會同時有兩個，
+  //   只用 id 找會找到「正在關的那個」，新的那個就永遠關不掉（連續操作時會疊在一起）
   function closeSheet() {
-    const ov = document.getElementById('sheet-overlay');
-    if (ov) { if (ov._unfit) ov._unfit(); ov.classList.remove('show'); setTimeout(() => ov.remove(), 250); }
+    document.querySelectorAll('.sheet-overlay').forEach(ov => {
+      if (ov._closing) return;
+      ov._closing = true;
+      if (ov._unfit) ov._unfit();
+      ov.classList.remove('show');
+      setTimeout(() => ov.remove(), 250);
+    });
   }
 
   function confirmDialog(msg, onYes, yesLabel) {

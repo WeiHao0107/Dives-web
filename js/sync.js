@@ -8,6 +8,7 @@
  *       雲端沒變 + 本機有改 → 上傳；雲端有變 + 本機沒改 → 套用雲端；
  *       兩邊都改（衝突）→ 不覆蓋雲端：套用雲端版本，本機版本另存，設定頁可「改用本機版本」
  *   - 上傳前一定先讀雲端比對（避免一直開著的舊分頁蓋掉別台裝置的新資料）
+ *   - 同一個 Gist 另有 dives-inbox.json（待確認交易，排程腳本寫入）：每次同步順便讀進來，App 不會寫這個檔
  *
  * Token：classic personal access token，需勾選 `gist` scope。
  *   各裝置貼同一組 token 即同步同一份資料（透過固定檔名搜尋同一個 Gist）。
@@ -18,7 +19,8 @@ window.App = window.App || {};
 App.Sync = (function () {
   // 會同步的資料 key（不含裝置本機快取與密鑰）
   const DATA_KEYS = ['dives_transactions', 'dives_meta', 'dives_realized', 'dives_snapshots', 'dives_account',
-    'dives_cash_accounts', 'dives_liabilities', 'dives_groups', 'dives_group_map', 'dives_recurring', 'dives_dividends', 'dives_futures', 'dives_leverage'];
+    'dives_cash_accounts', 'dives_liabilities', 'dives_groups', 'dives_group_map', 'dives_recurring', 'dives_dividends', 'dives_futures', 'dives_leverage',
+    'dives_inbox_done', 'dives_inbox_cfg'];   // 待確認交易的處理紀錄與設定（收件匣內容本身在 Gist 的另一個檔，見 inbox.js）
   const FILENAME = 'dives-portfolio.json';
   const K = { token: 'dives_sync_token', gist: 'dives_sync_gist', localTs: 'dives_sync_local_ts',
     remoteTs: 'dives_sync_remote_ts', dirty: 'dives_sync_dirty', conflict: 'dives_sync_conflict' };
@@ -89,8 +91,8 @@ App.Sync = (function () {
     return null;
   }
 
-  async function readGistContent(g) {
-    const f = g.files && g.files[FILENAME];
+  async function readGistContent(g, name) {
+    const f = g.files && g.files[name || FILENAME];
     if (!f) return null;
     let content = f.content;
     if (f.truncated && f.raw_url) content = await (await fetch(f.raw_url)).text();
@@ -133,6 +135,9 @@ App.Sync = (function () {
       setStatus('syncing');
       try {
         const { g, remote } = await readRemote();
+        // 待確認交易的收件匣：同一個 Gist 的另一個檔（排程腳本寫入，App 只讀）。讀失敗不影響主資料同步
+        let inboxChanged = false;
+        if (g && App.Inbox) { try { inboxChanged = App.Inbox.setFromRemote(await readGistContent(g, App.Inbox.FILENAME)); } catch (e) { console.warn('inbox read failed', e); } }
         const act = decide({ remoteTs: remote ? (remote.updatedAt || 0) : null, last: lastRemote(), dirty: isDirty(), localTs: localTs(), hasLocal: hasLocalData() });
         let changed = false, conflict = false;
         if (act === 'apply') { applyRemote(remote); changed = true; }
@@ -140,7 +145,7 @@ App.Sync = (function () {
         else if (act === 'push') await writeRemote(g ? g.id : '');
         else if (remote) setLastRemote(remote.updatedAt || 0);
         setStatus('synced:' + (lastRemote() || localTs()));
-        return { changed, conflict };
+        return { changed: changed || inboxChanged, conflict };
       } catch (e) { console.warn('sync failed', e); setStatus('error:' + e.message); return { changed: false, error: e.message }; }
       finally { running = null; }
     })();

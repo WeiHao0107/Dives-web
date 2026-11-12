@@ -38,6 +38,9 @@ App.Store = (function () {
     allocUi: 'dives_alloc_ui',
     theme: 'dives_theme',
     futures: 'dives_futures',
+    inbox: 'dives_inbox',
+    inboxDone: 'dives_inbox_done',
+    inboxCfg: 'dives_inbox_cfg',
   };
 
   function read(key, fallback) {
@@ -178,6 +181,15 @@ App.Store = (function () {
   function unreadNotifCount() { return getNotifications().filter(n => !n.read).length; }
   function markNotificationsRead() { setNotifications(getNotifications().map(n => n.read ? n : Object.assign({}, n, { read: true }))); }
 
+  // ---- 待確認交易（見 inbox.js）----
+  //   inbox：Gist 收件匣檔的本機快取；inboxDone：{ id: [狀態, 時間] }；inboxCfg：{ acct: { 券商: 現金帳戶 id } }
+  function getInbox() { const r = read(K.inbox, null); return r && Array.isArray(r.items) ? r : { updatedAt: 0, items: [] }; }
+  function setInbox(v) { write(K.inbox, v); }
+  function getInboxDone() { const r = read(K.inboxDone, null); return r && typeof r === 'object' && !Array.isArray(r) ? r : {}; }
+  function setInboxDone(v) { write(K.inboxDone, v); }
+  function getInboxCfg() { const r = read(K.inboxCfg, null); return r && typeof r === 'object' ? r : { acct: {} }; }
+  function setInboxCfg(v) { write(K.inboxCfg, v); }
+
   // ---- 自動匯入台股股利（預設開啟；入帳帳戶選填）----
   function getAutoDivImport() { return localStorage.getItem(K.autoDiv) !== '0'; }
   function setAutoDivImport(v) { localStorage.setItem(K.autoDiv, v ? '1' : '0'); }
@@ -248,6 +260,7 @@ App.Store = (function () {
     setDividends([]);
     setNotifications([]);
     setFutures(null);
+    setInbox({ updatedAt: 0, items: [] }); setInboxDone({}); setInboxCfg({ acct: {} });
   }
 
   return {
@@ -267,6 +280,7 @@ App.Store = (function () {
     getRecurringPlans, setRecurringPlans,
     getDividends, setDividends,
     getNotifications, setNotifications, pushNotification, unreadNotifCount, markNotificationsRead,
+    getInbox, setInbox, getInboxDone, setInboxDone, getInboxCfg, setInboxCfg,
     getAutoDivImport, setAutoDivImport, getAutoDivAcct, setAutoDivAcct,
     getAutoDivUs, setAutoDivUs, getAutoDivAcctUs, setAutoDivAcctUs, getAutoDivUsTax, setAutoDivUsTax,
     getGroups, setGroups, getGroupMap, setGroupMap,

@@ -77,6 +77,28 @@ Market = { tse, otc, rotc, us, crypto, unknown }
 
 `App.Store.clearAll()` 會清空以上全部。
 
+### 待確認交易（`App.Inbox`，`js/inbox.js`）
+
+排程腳本把券商對帳單整理成交易，寫進**同步 Gist 的另一個檔 `dives-inbox.json`**；App 每次同步時讀進來（只讀不寫），使用者審核後才入帳。
+
+```jsonc
+{ "app": "dives-inbox", "version": 1, "updatedAt": 1794470000000, "items": [
+  // 股票
+  { "id": "cathay:2026-11-11:VOO:BUY:2:707.32:1", "broker": "cathay", "kind": "stock", "date": "2026-11-11", "time": "22:31:05",
+    "symbol": "VOO", "name": "Vanguard S&P 500 ETF", "market": "us", "side": "BUY", "shares": 2, "price": 707.32, "fee": 1.13, "tax": 0,
+    "source": "國泰買賣報告書 2026/11/11" },
+  // 期貨
+  { "id": "yuanta-fut:2026-11-06:TX:202611:BUY:1:27650:1", "broker": "yuanta-fut", "kind": "fut", "date": "2026-11-06",
+    "contract": "TX", "month": "202611", "side": "BUY", "lots": 1, "price": 27650, "fee": 50, "tax": 111, "source": "元大期貨買賣報告書 2026/11/06" }
+] }
+```
+
+- `id`：腳本產生，同一筆成交每次執行都必須相同（App 靠它記住已匯入／已略過）；同價同量的多筆成交要用序號區分。
+- `date`／`time`（選填，`HH:MM[:SS]`）為台灣時間；沒有 `time` → 當天中午，同日依檔案順序。
+- `broker`：`cathay`｜`yuanta-fut`｜`yuanta`｜`firstrade`（其他字串照樣顯示）。`fee` 為整筆合計；期貨 `tax` 省略則依合約自動算；股票的 `tax` 併入手續費。
+- 格式不對的項目整筆丟掉（不猜）；腳本應保留近 60 天的項目，舊的可移除。
+- 本機狀態：`dives_inbox`（收件匣快取，不同步）、`dives_inbox_done`（`{ id: [ 'i'已匯入 | 's'已略過, 時間 ] }`，同步）、`dives_inbox_cfg`（`{ acct: { 券商: 現金帳戶 id } }`，同步）。
+
 `meta.market` 缺漏或 `unknown`（舊備份、iOS 匯出不認得的市場字串）時，`metaMap()` **讀取時**依代碼格式補上（`guessMarketBySymbol`），`upsertMeta` 寫回即修復；否則字母代碼的美股會被當台股（不換匯率、報價走台股來源）。
 
 ---
@@ -193,6 +215,8 @@ netWorthBuckets(snapshots, gran, cashLiab) -> Bucket[]
 - **I15**：報酬率分母 `capitalBase(snap) = 股票成本 + 期貨入金`（期貨入金 = 權益數 − 未平倉 − 已實現淨額；沒連結保證金帳戶不計）。凡損益含期貨的報酬率（報表、`scopedStats`、快照 `totalReturnPct`）都用它。
 - **I16**：重建歷史不抹掉紀錄 —— `rebuildSnapshots` 保留「當天實際記錄」的現金／負債／期貨餘額（快照非 `est` 且有 `netWorth`）；沒紀錄的日子沿用最近一筆並標 `est:1`（CSV `Est` 欄）；完全沒有紀錄才用目前值。任何一檔歷史價抓取失敗（`hist._failed`）→ `rebuildHistory` 不重建。
 - **I17**：`athInfo(currentNw)` = 歷史最高淨資產（各日快照 `netWorth` 與今天即時值取大），回傳日期、是否今天創高、目前距高點 %。走勢折線以每日資料畫（≤ 800 天），並標出第一條線的最高／最低點（`Charts.extremes`）；報表迷你走勢不標。
+- **I19**：待確認交易不會自動入帳 —— 只有使用者按匯入才呼叫 `addTransaction`／`Futures.addTrade`（帶 `source: 'inbox:券商'`、成交日期）；匯入成功才記為已處理，失敗的留在清單。批次匯入依成交時間舊→新。App 不寫 `dives-inbox.json`。
+- **I20**：新增交易表單所選的日期會寫入（今天 → 當下時間；其他日期 → 當天中午）。
 - **I18**：月曆當日比例 = 當日損益 ÷ 前一筆快照的部位（台股／美股／加密＝該市場市值、期貨＝權益數、總損益＝股票市值＋期貨權益數、群組＝前一日群組市值）；前一筆沒有部位 → 用「當日部位 − 當日損益」；仍無部位 → 不顯示。股息不算比例。
 - **I10**：賣出一致性 —— 賣出（新增或編輯）以**時間序重播**驗證：加入後任一時點的賣出股數不得超過當時持股（`firstOversell`），否則拒絕；已實現損益一律由 `recomputeRealized` 重播產生，新增當下與事後編輯結果相同。同檔同一時間多筆賣出對應各自的已實現紀錄（`realizedByTxId`，依建立順序配對）。
 
