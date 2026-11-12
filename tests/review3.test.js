@@ -158,6 +158,10 @@ test('athInfo：歷史最高淨資產（含今天的即時值）、距離高點 
   assert.ok(Math.abs(a.drawdownPct - (-20)) < 1e-9);
   const b = C.athInfo(350, '2026-03-02');
   assert.deepEqual([b.value, b.date, b.isToday, b.drawdownPct], [350, '2026-03-02', true, 0]);
+  // 突破時帶出被突破的前高與超越幅度
+  assert.deepEqual([b.prev.value, b.prev.date], [300, '2026-02-01']);
+  assert.ok(Math.abs(b.prev.abovePct - 50 / 3) < 1e-9);
+  assert.equal(C.athInfo(50, '2026-01-01', []).prev, null);   // 沒有任何歷史 → 沒有前高
   assert.equal(C.athInfo(0, '2026-03-02', []), null);
 });
 

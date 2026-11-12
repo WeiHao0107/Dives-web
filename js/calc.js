@@ -498,9 +498,11 @@ App.Calc = (function () {
       if (!best || x.netWorth > best.value) best = { value: x.netWorth, date: x.date };
     }
     const cur = currentNw || 0;
+    const prev = best;   // 今天以前的最高（今天創高時＝被突破的前高）
     if (cur > 0 && (!best || cur >= best.value)) best = { value: cur, date: today };
     if (!best || !(best.value > 0)) return null;
-    return { value: best.value, date: best.date, isToday: best.date === today, current: cur, drawdownPct: (cur - best.value) / best.value * 100 };
+    return { value: best.value, date: best.date, isToday: best.date === today, current: cur, drawdownPct: (cur - best.value) / best.value * 100,
+      prev: prev && prev.value > 0 ? { value: prev.value, date: prev.date, abovePct: (cur - prev.value) / prev.value * 100 } : null };
   }
 
   // 現金帳戶 / 負債 台幣總額（美金 ×匯率）
