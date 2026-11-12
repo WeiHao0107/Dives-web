@@ -890,6 +890,22 @@ App.Calc = (function () {
     const b = prevBase > 0.5 ? prevBase : curBase > 0.5 ? curBase - v : 0;
     return b > 0.5 ? v / b * 100 : null;
   }
+  // 群組損益（TWD）：未實現 = 成員目前持倉的 市值 − 成本；已實現 = 成員歷來賣出的損益
+  //   已實現含「已經賣光、但仍歸在這個群組」的標的；不含股息。美股／加密以目前匯率換算
+  function groupPnl(symbols, positions, fxRate) {
+    const set = new Set(symbols || []);
+    const rate = fxRate || S.getFxRate() || 31.5;
+    const mmap = S.metaMap();
+    const conv = (sym, mk) => { const m = U.normalizeMarketKey(mk || (mmap[sym] && mmap[sym].market) || U.guessMarketBySymbol(sym)); return m === U.Market.us || m === U.Market.crypto ? rate : 1; };
+    let cost = 0, mv = 0, unreal = 0, realized = 0;
+    for (const p of positions || buildPositions()) {
+      if (!set.has(p.symbol)) continue;
+      const k = conv(p.symbol, p.market);
+      cost += p.cost * k; mv += p.marketValue * k; unreal += p.unrealizedPnl * k;
+    }
+    for (const r of S.getRealized()) if (set.has(r.symbol)) realized += (r.realizedPnl || 0) * conv(r.symbol);
+    return { costTwd: cost, mvTwd: mv, unrealizedTwd: unreal, realizedTwd: realized, totalTwd: unreal + realized, unrealizedPct: cost > 1e-9 ? unreal / cost * 100 : null };
+  }
   // 群組每日損益：series = buildGroupSeries(symbols, hist) 的結果 [{date, mv, cost}]
   //   當日 = Δ(市值 − 成本) + 當日已實現（賣出後成本與市值同減，獲利落在已實現）；不含股息。回傳 { days, pct, sum }
   function groupCalendarPnl(symbols, series, year, month, fxRate) {
@@ -1289,7 +1305,7 @@ App.Calc = (function () {
     computeAvgCostPosition, buildPositions, buildSummary,
     addTransaction, updateTransaction, deleteTransaction, recomputeRealized, realizedByTxId, firstOversell,
     addStockDividend, dividendsTotalTwd, dividendsBetween, dividendsUpTo, addDividend, updateDividend, deleteDividend, sharesHeldBefore,
-    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, calendarPnl, groupCalendarPnl, capitalBase, athInfo, txCashDelta, cashLiabTwd,
+    deleteSymbol, saveTodaySnapshot, makeSnapshot, rebuildSnapshots, assetsSummary, leverageSummary, allocation, calendarPnl, groupCalendarPnl, groupPnl, capitalBase, athInfo, txCashDelta, cashLiabTwd,
     netWorthBuckets, findAbsurdFees, repairFees, buildGroupSeries, tradingStats, scopedStats, xirrRate, buildXirrFlows, portfolioXirr,
     recurringDueDates, isoAddDays, priceOnOrBefore, planFee, applyLiabilityPayment, investedBetween, feesSummary,
   };

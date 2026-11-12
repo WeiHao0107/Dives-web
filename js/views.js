@@ -1693,8 +1693,18 @@ App.Views = (function () {
     const rate = S.getFxRate() || 31.5;
     const sum = C.assetsSummary();
     const gmap = S.getGroupMap();
-    const members = C.buildPositions().filter(p => gmap[p.symbol] === gid);
+    const allPos = C.buildPositions();
+    const members = allPos.filter(p => gmap[p.symbol] === gid);
     const gTotal = members.reduce((s, p) => s + mvTwdOf(p, rate), 0);
+    // 群組損益：目前（未實現）、已實現（含已賣光仍歸在此群組的標的）、兩者合計
+    const gp = C.groupPnl(Object.keys(gmap).filter(sym => gmap[sym] === gid), allPos, rate);
+    const signed = v => (v > 0.5 ? '+' : v < -0.5 ? '-' : '') + U.fmtWhole(Math.abs(v));
+    const pnlCell = (label, v, extra) => `<div class="gd-pc"><span>${label}</span><b style="color:${UI.pnlColor(Math.abs(v) < 0.5 ? 0 : v)}">${signed(v)}</b>${extra || ''}</div>`;
+    const pnlHtml = members.length || Math.abs(gp.realizedTwd) >= 0.5 ? `<div class="gd-pnl">
+      ${pnlCell('目前損益', gp.unrealizedTwd, gp.unrealizedPct != null ? `<i style="color:${UI.pnlColor(gp.unrealizedTwd)}">${U.fmtPct(gp.unrealizedPct)}</i>` : '')}
+      ${pnlCell('已實現', gp.realizedTwd)}
+      ${pnlCell('合計', gp.totalTwd)}
+    </div>` : '';
     const basis = S.getPctBasis();
     const denomV = basis === 'group' ? (gTotal || 1) : basis === 'invest' ? sum.investTwd : sum.netWorth;
     members.sort((a, b) => as.detailAsc ? mvTwdOf(a, rate) - mvTwdOf(b, rate) : mvTwdOf(b, rate) - mvTwdOf(a, rate));
@@ -1711,7 +1721,8 @@ App.Views = (function () {
         <button class="gd-plus" aria-label="新增">＋</button>
       </div>
     </div>
-    <div class="gd-total">合計 NT$ ${U.fmtWhole(gTotal)} <button class="gd-sort" aria-label="排序">${as.detailAsc ? '▲' : '▼'}</button></div>`;
+    ${pnlHtml}
+    <div class="gd-total">市值合計 NT$ ${U.fmtWhole(gTotal)} <button class="gd-sort" aria-label="排序">${as.detailAsc ? '▲' : '▼'}</button></div>`;
 
     // 組內分布圓餅（2 檔以上才顯示；分母＝群組合計，不受「投資佔比基準」影響）
     let listHtml = members.filter(p => mvTwdOf(p, rate) > 0).length >= 2

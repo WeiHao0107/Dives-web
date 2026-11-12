@@ -62,3 +62,24 @@ test('allocation 限定群組：只算組內成員，分母＝群組合計', () 
   assert.deepEqual(a.slices.map(s => [s.key, Math.round(s.pct * 10) / 10]), [['2330', 83.3], ['0050', 16.7]]);
   assert.equal(a.count, 2);
 });
+
+test('groupPnl：群組的未實現、已實現（含已賣光的成員）與合計；美股換匯', () => {
+  resetStore();
+  const S = App.Store, C = App.Calc;
+  const T = iso => Date.parse(iso + 'T12:00:00+08:00');
+  S.setFxRate(30);
+  C.addTransaction({ symbolInput: '2330', type: 'BUY', shares: 100, price: 500, fee: 0, market: 'tse', time: T('2026-01-05') });
+  C.addTransaction({ symbolInput: '2330', type: 'SELL', shares: 40, price: 600, fee: 0, market: 'tse', time: T('2026-02-05') });   // 已實現 +4,000
+  C.addTransaction({ symbolInput: 'AAPL', type: 'BUY', shares: 10, price: 100, fee: 0, market: 'us', time: T('2026-01-05') });
+  C.addTransaction({ symbolInput: 'MSFT', type: 'BUY', shares: 5, price: 200, fee: 0, market: 'us', time: T('2026-01-05') });
+  C.addTransaction({ symbolInput: 'MSFT', type: 'SELL', shares: 5, price: 220, fee: 0, market: 'us', time: T('2026-03-05') });     // 賣光：已實現 +100 USD
+  C.addTransaction({ symbolInput: '0050', type: 'BUY', shares: 10, price: 100, fee: 0, market: 'tse', time: T('2026-01-05') });   // 不在群組
+  S.setPrices({ 2330: { price: 550, dailyChange: 0, prevClose: 550 }, AAPL: { price: 90, dailyChange: 0, prevClose: 90 }, '0050': { price: 300, dailyChange: 0, prevClose: 300 } });
+  const r = C.groupPnl(['2330', 'AAPL', 'MSFT']);
+  assert.equal(r.costTwd, 60 * 500 + 10 * 100 * 30);
+  assert.equal(r.unrealizedTwd, 60 * 50 + 10 * -10 * 30);        // +3,000 − 3,000 = 0
+  assert.equal(r.realizedTwd, 4000 + 100 * 30);
+  assert.equal(r.totalTwd, r.unrealizedTwd + r.realizedTwd);
+  assert.equal(r.unrealizedPct, 0);
+  assert.deepEqual(C.groupPnl([]), { costTwd: 0, mvTwd: 0, unrealizedTwd: 0, realizedTwd: 0, totalTwd: 0, unrealizedPct: null });
+});
