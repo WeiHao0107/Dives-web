@@ -40,7 +40,8 @@ test('dayPnl：今日買入且同日賣出部分 → 賣出先扣昨日持股', 
   C.addTransaction({ symbolInput: '2330', type: 'SELL', shares: 30, price: 521, fee: 0, market: 'tse', time: Date.now() });
   const pos = C.buildPositions().find(p => p.symbol === '2330');
   // 剩 120 股：昨日持股 70 × 5 + 今日買入 50 × (520−518) = 350 + 100 = 450
-  assert.equal(Math.round(pos.dayPnl), 450);
+  // 加上今日賣出的 30 股（先賣昨日持股）：(521 − 昨收 515) × 30 = 180 → 630
+  assert.equal(Math.round(pos.dayPnl), 630);
 });
 
 test('dayPnl：無報價資料 → 0', () => {

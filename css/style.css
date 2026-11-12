@@ -685,3 +685,15 @@ input, select { font-family: inherit; font-size: 15px; }
 .cal-c.today .cal-d { color: var(--accent-ink); font-weight: 700; }
 .cal-note { padding: 60px 0; text-align: center; font-size: 13px; color: var(--sub); }
 .cal-retry { color: var(--accent-ink); font-weight: 700; font-size: 13px; }
+
+/* 折線圖最高／最低點標籤（文字外圍一圈卡片底色，壓在線上也讀得清楚） */
+.ch-mark { font-size: 10px; font-weight: 700; fill: var(--text); paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
+/* 報表迷你走勢的最高／最低點（HTML 疊在拉伸的 SVG 上） */
+.rep-spark-wrap { position: relative; margin: 22px 0 16px; }
+.rep-spark-wrap .rep-spark { margin: 0; }
+.sp-dot { position: absolute; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--bg); transform: translate(-50%, -50%); pointer-events: none; }
+.sp-lbl { position: absolute; font-size: 10px; font-weight: 700; line-height: 1; color: var(--text); white-space: nowrap; pointer-events: none; text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg), 0 0 3px var(--bg); }
+/* 資產頁 Hero：ATH（歷史最高淨資產） */
+.nw-ath { margin-top: 5px; font-size: 12px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nw-ath b { font-weight: 700; color: var(--text); }
+.nw-ath-new { font-weight: 700; color: var(--accent-ink); }

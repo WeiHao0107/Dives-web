@@ -94,6 +94,52 @@ App.Futures = (function () {
     return { positions, events };
   }
 
+  // 當日損益（TWD）：逐合約月份模擬今天的交易。
+  //   昨日留倉：以昨結算為基準 → 仍持有的用報價的 dailyChange，今日平掉的用（平倉價 − 昨結算）
+  //   今日新開：以開倉價為基準 → 仍持有的用（現價 − 開倉均價），當沖平掉的用（平倉價 − 開倉均價）
+  //   今日反向交易先平昨日留倉、再平今日新倉。沒有報價的月份，昨日留倉部分無從計算 → 0
+  function dayPnlOf(trades, prices, todayIso) {
+    const today = todayIso || App.Util.isoDate();
+    const sorted = [...(trades || [])].sort((a, b) => a.time - b.time);
+    const isToday = t => App.Util.isoDate(new Date(t.time)) === today;
+    const old = {};
+    for (const p of replay(sorted.filter(t => !isToday(t))).positions) old[p.key] = p.netLots;
+    const st = {};
+    const get = k => st[k] || (st[k] = { old: old[k] || 0, neu: 0, neuAvg: 0, pnl: 0 });
+    for (const k in old) get(k);
+    const quote = k => { const [c, m] = k.split('@'); return (prices || {})[priceKey(c, m)] || null; };
+    // 昨結算：報價是今天的 → prevClose；報價還停在前一交易日（今天尚未更新）→ 該價本身就是昨結算
+    const prevOf = q => !q ? null : (q.date && q.date < today) ? q.price : (q.prevClose != null ? q.prevClose : (q.price != null ? q.price - (q.dailyChange || 0) : null));
+    for (const t of sorted) {
+      if (!isToday(t)) continue;
+      const k = t.contract + '@' + t.month, x = get(k), mult = MULT[t.contract] || 0, dir = t.side === 'SELL' ? -1 : 1;
+      let lots = +t.lots || 0;
+      if (x.old !== 0 && Math.sign(x.old) !== dir) {
+        const c = Math.min(lots, Math.abs(x.old)), prev = prevOf(quote(k));
+        if (prev != null) x.pnl += (t.price - prev) * mult * c * Math.sign(x.old);
+        x.old -= c * Math.sign(x.old); lots -= c;
+      }
+      if (lots > 0 && x.neu !== 0 && Math.sign(x.neu) !== dir) {
+        const c = Math.min(lots, Math.abs(x.neu));
+        x.pnl += (t.price - x.neuAvg) * mult * c * Math.sign(x.neu);
+        x.neu -= c * Math.sign(x.neu); lots -= c;
+        if (x.neu === 0) x.neuAvg = 0;
+      }
+      if (lots > 0) {
+        const cur = Math.abs(x.neu);
+        x.neuAvg = cur > 0 ? (x.neuAvg * cur + t.price * lots) / (cur + lots) : t.price;
+        x.neu += lots * dir;
+      }
+    }
+    let total = 0;
+    for (const k in st) {
+      const x = st[k], q = quote(k), mult = MULT[k.split('@')[0]] || 0;
+      if (q && q.price > 0) x.pnl += (q.dailyChange || 0) * mult * x.old + (q.price - x.neuAvg) * mult * x.neu;
+      total += x.pnl;
+    }
+    return total;
+  }
+
   function riskLevel(r) { return r == null ? null : r >= 1 ? 'safe' : r >= 0.5 ? 'warn' : 'danger'; }
 
   // 指標。state 空 → getState()；prices 為 S.getPrices() 格式
@@ -103,15 +149,8 @@ App.Futures = (function () {
     const pr = prices || {};
     const margin = st.margin || DEFAULTS.margin;
     const { positions, events } = replay(st.trades);
-    // 當日開倉口數（同股票：今日買入以成交價為基準，不把昨收→成交的跳空算進今日）
-    const today = App.Util.isoDate();
-    const todayOpen = {};
-    for (const t of st.trades || []) {
-      if (App.Util.isoDate(new Date(t.time)) !== today) continue;
-      const o = todayOpen[t.contract + '@' + t.month] || (todayOpen[t.contract + '@' + t.month] = { BUY: { lots: 0, cost: 0 }, SELL: { lots: 0, cost: 0 } });
-      o[t.side === 'SELL' ? 'SELL' : 'BUY'].lots += +t.lots || 0; o[t.side === 'SELL' ? 'SELL' : 'BUY'].cost += (+t.lots || 0) * (+t.price || 0);
-    }
-    let unrealized = 0, initTotal = 0, maintTotal = 0, sens = 0, notional = 0, dayPnl = 0;
+    let unrealized = 0, initTotal = 0, maintTotal = 0, sens = 0, notional = 0;
+    const dayPnl = dayPnlOf(st.trades, pr);   // 含今日平倉／轉倉
     const rows = positions.map(p => {
       const mult = MULT[p.contract] || 0;
       const q = pr[priceKey(p.contract, p.month)];
@@ -121,11 +160,6 @@ App.Futures = (function () {
       const notl = Math.abs(p.netLots) * mult * (mark != null ? mark : p.avgEntry);
       unrealized += unr; initTotal += Math.abs(p.netLots) * mk.init; maintTotal += Math.abs(p.netLots) * mk.maint;
       sens += p.netLots * mult; notional += notl;
-      const dir = Math.sign(p.netLots), absLots = Math.abs(p.netLots);
-      const opened = (todayOpen[p.key] || {})[dir > 0 ? 'BUY' : 'SELL'];
-      const newLots = Math.min(absLots, opened ? opened.lots : 0), oldLots = absLots - newLots;
-      dayPnl += (q && q.dailyChange ? q.dailyChange : 0) * mult * oldLots * dir
-        + (mark != null && newLots > 0 ? (mark - opened.cost / opened.lots) * mult * newLots * dir : 0);
       return Object.assign({}, p, { mark, unrealized: unr, notional: notl, pts: mark != null ? (mark - p.avgEntry) * Math.sign(p.netLots) : null });
     });
     const acct = st.accountId ? S.getCashAccounts().find(a => a.id === st.accountId) : null;
@@ -180,6 +214,17 @@ App.Futures = (function () {
     return null;
   }
   function applyCash(st, delta) { if (st.accountId && delta) S.adjustCashBalance(st.accountId, r2(delta)); }
+  // 重算每筆交易的現金效果（已實現 − 手續費 − 稅），回傳合計。
+  //   改／刪／補登較早的交易會改變「之後」平倉的均價與已實現，所以不能只算被動到的那一筆：
+  //   一律整批重播，並把合計的變化量套到保證金帳戶 → 餘額恆等於 入金 + 已實現淨額
+  const cashSum = trades => trades.reduce((a, t) => a + (t.cash || 0), 0);
+  function resyncCash(st, oldSum) {
+    const ev = {};
+    for (const e of replay(st.trades).events) ev[e.tradeId] = e.realizedPnl;
+    for (const t of st.trades) t.cash = r2((ev[t.id] || 0) - (t.fee || 0) - (t.tax || 0));
+    saveState(st);
+    applyCash(st, cashSum(st.trades) - oldSum);
+  }
   function realizedOf(trades, id) { const ev = replay(trades).events.find(e => e.tradeId === id); return ev ? ev.realizedPnl : 0; }
 
   // 新增交易：tax 未給則自動算；cash = 已實現 − 手續費 − 稅（有連結帳戶才套用）
@@ -190,18 +235,17 @@ App.Futures = (function () {
     if (rollId) t.rollId = rollId;
     if (note) t.note = note;
     const err = validateTrade(t); if (err) return { ok: false, msg: err };
-    const trades = [...st.trades, t];
-    const realized = realizedOf(trades, t.id);
-    t.cash = r2(realized - t.fee - t.tax);
-    st.trades = trades; saveState(st);
-    applyCash(st, t.cash);
-    return { ok: true, trade: t, realized };
+    const oldSum = cashSum(st.trades);
+    st.trades = [...st.trades, t];
+    resyncCash(st, oldSum);
+    return { ok: true, trade: t, realized: realizedOf(st.trades, t.id) };
   }
   function deleteTrade(id) {
     const st = getState();
     const t = st.trades.find(x => x.id === id); if (!t) return { ok: false, msg: '找不到交易' };
-    st.trades = st.trades.filter(x => x.id !== id); saveState(st);
-    applyCash(st, -(t.cash || 0));
+    const oldSum = cashSum(st.trades);
+    st.trades = st.trades.filter(x => x.id !== id);
+    resyncCash(st, oldSum);
     return { ok: true };
   }
   // 更新：先沖回舊 cash，改完重播算新 cash 再套用；改價／口數／合約而未指定稅 → 重算稅
@@ -216,11 +260,9 @@ App.Futures = (function () {
     if (patch.tax == null && (patch.price != null || patch.lots != null || patch.contract)) cand.tax = taxOf(cand.contract, cand.price, cand.lots);
     else if (cand.tax != null) cand.tax = r2(+cand.tax);
     const err = validateTrade(cand); if (err) return { ok: false, msg: err };
-    applyCash(st, -(t.cash || 0));
-    const trades = st.trades.map(x => (x.id === id ? cand : x));
-    cand.cash = r2(realizedOf(trades, id) - cand.fee - cand.tax);
-    st.trades = trades; saveState(st);
-    applyCash(st, cand.cash);
+    const oldSum = cashSum(st.trades);
+    st.trades = st.trades.map(x => (x.id === id ? cand : x));
+    resyncCash(st, oldSum);
     return { ok: true, trade: cand };
   }
   // 一鍵轉倉：先平近月（反方向）、再開遠月（同方向），兩筆共用 rollId
@@ -305,6 +347,6 @@ App.Futures = (function () {
     return { price: q.price, dailyChange: q.prevClose != null ? q.price - q.prevClose : 0, prevClose: q.prevClose };
   }
 
-  return { parseYahooFutures, realtimeQuote, MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
+  return { parseYahooFutures, realtimeQuote, dayPnlOf, MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
     addTrade, deleteTrade, updateTrade, rollover, parseTaifexMargins, parseFuturesDaily };
 })();

@@ -3,7 +3,7 @@
  * ======================================================================= */
 (function () {
   const V = App.Views, S = App.Store, C = App.Calc, UI = App.UI, Api = App.Api;
-  App.VERSION = 'v153';
+  App.VERSION = 'v154';
 
   const TAB_ORDER = ['assets', 'portfolio', 'report', 'history', 'settings'];
   // 記住當前分頁，避免重新整理/下拉時跳回資產
@@ -218,6 +218,12 @@
       Api.fetchCryptoHistory(cryptoCodes, firstDate),
       Api.fetchFuturesHistory(fkeys, firstDate),
     ]);
+    // 任何一檔的歷史價「抓失敗」（斷線、FinMind 額度用盡）就不重建：照樣重建會以成本估算、把已記錄的損益走勢洗成 0
+    const failed = [twHist, usHist, cryptoHist, futHist].reduce((a, h) => a.concat(h._failed || []), []);
+    if (failed.length) {
+      UI.toast(`抓不到 ${failed.slice(0, 3).join('、')}${failed.length > 3 ? ' 等 ' + failed.length + ' 檔' : ''} 的歷史價格，未重建（原有走勢保留），請稍後再試`, 'error');
+      return 0;
+    }
     const n = C.rebuildSnapshots(Object.assign({}, twHist, usHist, cryptoHist), S.getFxRate(), futHist);
     C.saveTodaySnapshot();          // 今天用即時價覆蓋
     if (App.Sync) App.Sync.markDirty();
@@ -286,7 +292,8 @@
       if (localStorage.getItem('dives_backfill_date') === today) return; // 今天已檢查過
       const gap = snapshotGapDays();
       if (gap <= 0) { localStorage.setItem('dives_backfill_date', today); return; } // 無缺口
-      await rebuildHistory();                                    // 用收盤價重建，填平缺口
+      const n = await rebuildHistory();                          // 用收盤價重建，填平缺口
+      if (!n) return;                                            // 歷史價抓失敗 → 沒重建，下次開啟再試
       localStorage.setItem('dives_backfill_date', today);
       UI.toast(`已自動補齊 ${gap} 天歷史`, 'success');
     } catch (e) { console.warn('auto backfill failed', e); }

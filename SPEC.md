@@ -188,6 +188,11 @@ netWorthBuckets(snapshots, gran, cashLiab) -> Bucket[]
 - **I9**：統計（歷史→統計 tab）—— `tradingStats()` 回傳：`period.{day,week,month,year}.{best,worst}`（以 totalPnl 期間變化，全歷史取極值）、`bestTrade/worstTrade`（realizedPnl 極值；**美股/加密先 ×匯率換成 TWD 再比較**，`amount` 為 TWD、`shares/price` 保留原幣別）、`topGain/topLoss/topPct`（現有持倉未實現 TWD/報酬率極值）。`scopedStats()` 同。
 - **I11**：期貨重播 —— `App.Futures.replay(trades)` 以（合約, 月份）為單位：同方向開倉加權均價、反方向平倉 `realized = (price − avgEntry) × 乘數 × 口數 × 方向`、超過口數反手；`summary()`：`equity = 帳戶餘額 + Σ未平倉`、`risk = equity ÷ Σ|口數|×原始`、`callPts = (equity − 維持總額) ÷ Σ(口數×乘數)`、`liqPts` 同式門檻 25% 原始、`accLev = 契約總值 ÷ equity`、`exposure = (股票市值 + 契約總值) ÷ 淨資產`。交易的 `cash`（已實現 − 手續費 − 稅）在新增時套用到保證金帳戶、刪除沖回。
 - **I12**：快照 `totalPnl/unrealizedPnl/realizedPnl/dayPnl/netWorth` 皆含期貨；`rebuildSnapshots(hist, fx, futHist)` 以各月份結算價 carry-forward；`tradingStats/scopedStats` 的單筆之最含期貨平倉事件（`market:'fut'`）、`feesSummary.fut` 含手續費＋稅。
+- **I13**：已實現重算 —— 任何會改變均價的異動（買入、配股，含補登較早日期）都要 `recomputeRealized(symbol)`；期貨同理：新增／修改／刪除一律 `resyncCash` 整批重播，保證金帳戶餘額恆等於「入金 + 已實現淨額」。
+- **I14**：當日損益含今日了結的部分 —— 股票 `symbolDayPnl`：昨日持股用昨收、今日買入用買價；今日賣出先賣昨日持股（賣價 − 昨收），再賣今日買入（賣價 − 買價）；今日賣光的標的列在 `buildPositions().closedToday` 由 `buildSummary` 計入。期貨 `Futures.dayPnlOf` 同規則（平倉價 − 昨結算；報價日期早於今天時該價即昨結算）。
+- **I15**：報酬率分母 `capitalBase(snap) = 股票成本 + 期貨入金`（期貨入金 = 權益數 − 未平倉 − 已實現淨額；沒連結保證金帳戶不計）。凡損益含期貨的報酬率（報表、`scopedStats`、快照 `totalReturnPct`）都用它。
+- **I16**：重建歷史不抹掉紀錄 —— `rebuildSnapshots` 保留「當天實際記錄」的現金／負債／期貨餘額（快照非 `est` 且有 `netWorth`）；沒紀錄的日子沿用最近一筆並標 `est:1`（CSV `Est` 欄）；完全沒有紀錄才用目前值。任何一檔歷史價抓取失敗（`hist._failed`）→ `rebuildHistory` 不重建。
+- **I17**：`athInfo(currentNw)` = 歷史最高淨資產（各日快照 `netWorth` 與今天即時值取大），回傳日期、是否今天創高、目前距高點 %。走勢折線以每日資料畫（≤ 800 天），並標出第一條線的最高／最低點（`Charts.extremes`）。
 - **I10**：賣出一致性 —— 賣出（新增或編輯）以**時間序重播**驗證：加入後任一時點的賣出股數不得超過當時持股（`firstOversell`），否則拒絕；已實現損益一律由 `recomputeRealized` 重播產生，新增當下與事後編輯結果相同。同檔同一時間多筆賣出對應各自的已實現紀錄（`realizedByTxId`，依建立順序配對）。
 
 ---

@@ -22,7 +22,7 @@ App.Views = (function () {
   // 隱藏模式下只遮住淨資產／總倉位（Hero 大數字），換成四個米字號；其餘金額不隱藏
   function maskAmounts(root) {
     if (!S.getPrivacy()) return;
-    root.querySelectorAll('.nw-num, .alloc-amt').forEach(el => { el.textContent = '＊＊＊＊'; });
+    root.querySelectorAll('.nw-num, .alloc-amt, .nw-ath-amt').forEach(el => { el.textContent = '＊＊＊＊'; });
   }
 
   /* ===================== 投資（市場分類卡，沿用資產頁風格）===================== */
@@ -55,7 +55,7 @@ App.Views = (function () {
     const body = list.length
       ? `<div class="ntf-list">${list.map(n => `<div class="ntf-row${n.read ? '' : ' unread'}">
           <span class="ntf-ic">${icon(n.type)}</span>
-          <div class="ntf-main"><div class="ntf-t">${n.title}</div>${n.body ? `<div class="ntf-b">${n.body}</div>` : ''}</div>
+          <div class="ntf-main"><div class="ntf-t">${esc(n.title)}</div>${n.body ? `<div class="ntf-b">${esc(n.body)}</div>` : ''}</div>
           <span class="ntf-time">${fmtT(n.time)}</span></div>`).join('')}</div>`
       : '<div class="empty" style="padding:28px">目前沒有通知</div>';
     const ov = UI.openSheet('通知', body, list.length ? '<button class="btn btn-ghost" id="ntf-clear" style="flex:1">清除全部</button>' : '');
@@ -163,7 +163,8 @@ App.Views = (function () {
       // twday 模式：美股白天未開盤 → 美股卡 0；台股開盤前/週末 → 台股卡 0；加密 24h 照算（與 Hero 一致）
       const dayOn = S.getDayMode() !== 'twday'
         || (M.key === 'us' ? U.usCountsTowardToday() : M.key === 'tw' ? U.twCountsTowardToday() : true);
-      const dayChg = dayOn ? list.reduce((s, p) => s + (p.dayPnl || 0) * convOf(p), 0) : 0;
+      const dayChg = dayOn ? list.reduce((s, p) => s + (p.dayPnl || 0) * convOf(p), 0)
+        + (positions.closedToday || []).filter(c => mkKey(c) === M.key).reduce((s, c) => s + c.dayPnl * (M.key === 'tw' ? 1 : rate), 0) : 0;   // 含今日賣光的標的
       const prevMv = tot - dayChg;
       const dayChgPct = Math.abs(prevMv) > 1e-9 ? dayChg / Math.abs(prevMv) * 100 : 0;
       const dArrow = dayChg > 0 ? '▲' : dayChg < 0 ? '▼' : '–';
@@ -470,7 +471,7 @@ App.Views = (function () {
         const usd = e.market === U.Market.us || e.market === U.Market.crypto;
         sub = `${e.symbol} · ${U.formatShares(e.shares)}${shareUnit(e.market)} @ ${usd ? '$' : ''}${U.formatPrice(e.price)} · ${e.date}`;
       } else {
-        sub = `${e.symbol}${e.name && e.name !== e.symbol ? ' ' + e.name : ''} · ${opts.pctMain ? sf(e.amount) : pctTxt(e.pct)}`;
+        sub = `${esc(e.symbol)}${e.name && e.name !== e.symbol ? ' ' + esc(e.name) : ''} · ${opts.pctMain ? sf(e.amount) : pctTxt(e.pct)}`;
       }
       return `<div class="stat-row"><div class="stat-lbl">${label}</div>
         <div class="stat-val"><div class="stat-amt" style="color:${col(opts.pctMain ? e.pct : e.amount)}">${amt}</div><div class="stat-sub">${sub}</div></div></div>`;
@@ -627,7 +628,7 @@ App.Views = (function () {
     let listHtml = `<div class="card tx-list">`;
     if (!filtered.length) listHtml += `<div class="empty">${filterOn || q ? '無符合篩選的紀錄' : '無紀錄'}</div>`;
     for (const e of filtered) {
-      const name = mmap[e.symbol]?.name || e.symbol;
+      const name = esc(mmap[e.symbol]?.name || e.symbol);
       const isUsd = isUsdMk(mktOf(e.symbol));
       const cur = (isUsd && !toTwd) ? '$' : 'NT$';
       const dstr = U.isoDate(new Date(e.time));
@@ -782,7 +783,7 @@ App.Views = (function () {
   }
   const futOf = x => (x.futRealizedPnl || 0) + (x.futUnrealizedTwd || 0);
   function mkReport(label, s, prev, cl) {
-    const cost = s.totalCostBasisTwd;
+    const cost = C.capitalBase(s);                                     // 投入本金：股票成本 + 期貨入金（損益含期貨）
     const pPnl = s.totalPnl - (prev ? prev.totalPnl : 0);
     const cumDiv = C.dividendsUpTo(s.date);                            // 累計股利至本期(TWD)
     const periodDiv = cumDiv - (prev ? C.dividendsUpTo(prev.date) : 0); // 本期收到股息
@@ -810,25 +811,41 @@ App.Views = (function () {
     };
   }
 
-  // 迷你走勢（sparkline）：以 totalPnl 序列畫面積線；stroke 不隨拉伸變粗
+  // 迷你走勢（sparkline）：以 totalPnl 序列畫面積線；stroke 不隨拉伸變粗。標出最高／最低點與數字
+  //   SVG 以 preserveAspectRatio=none 拉伸，圓點與文字若畫在 SVG 內會變形 → 用 HTML 疊在上面（left 用 %、top 用 px）
   function sparklineHtml(vals, color) {
     vals = (vals || []).filter(v => typeof v === 'number' && isFinite(v));
     if (vals.length < 2) return '';
-    let pts = vals;
-    const N = 44;
-    if (vals.length > N) { const step = vals.length / N; pts = []; for (let i = 0; i < N; i++) pts.push(vals[Math.floor(i * step)]); pts.push(vals[vals.length - 1]); }
+    const ex = App.Charts.extremes(vals);
+    // 取樣（最多約 44 點），最高／最低點一定保留
+    const N = 44, last = vals.length - 1;
+    let idx = vals.map((_, i) => i);
+    if (vals.length > N + 1) {
+      const set = new Set();
+      for (let i = 0; i <= N; i++) set.add(Math.round(i * last / N));
+      if (ex) { set.add(ex.hi); set.add(ex.lo); }
+      idx = [...set].sort((a, b) => a - b);
+    }
     const W = 300, H = 52, pad = 4;
-    let lo = Math.min(...pts), hi = Math.max(...pts);
+    let lo = Math.min(...idx.map(i => vals[i])), hi = Math.max(...idx.map(i => vals[i]));
     if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
-    const xAt = i => pts.length > 1 ? i / (pts.length - 1) * W : W / 2;
+    const xAt = i => i / last * W;
     const yAt = v => pad + (1 - (v - lo) / (hi - lo)) * (H - pad * 2);
-    const line = pts.map((v, i) => (i ? 'L' : 'M') + xAt(i).toFixed(1) + ' ' + yAt(v).toFixed(1)).join(' ');
+    const line = idx.map((i, k) => (k ? 'L' : 'M') + xAt(i).toFixed(1) + ' ' + yAt(vals[i]).toFixed(1)).join(' ');
     const fill = color === UI.LOSS ? 'rgba(67,160,71,0.13)' : color === UI.GAIN ? 'rgba(229,57,53,0.13)' : 'rgba(109,95,213,0.13)';
     // stroke 走 style 而非 SVG 屬性：CSS 變數(var(--gain))只在 style 內生效
-    return `<svg class="rep-spark" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-hidden="true">
+    const svg = `<svg class="rep-spark" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" aria-hidden="true">
       <path d="${line} L${W} ${H} L0 ${H} Z" style="fill:${fill}"/>
       <path d="${line}" fill="none" style="stroke:${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     </svg>`;
+    if (!ex) return svg;
+    const mark = (i, isHi) => {
+      const xp = i / last * 100, y = yAt(vals[i]);
+      const shift = xp < 14 ? '0' : xp > 86 ? '-100%' : '-50%';
+      return `<i class="sp-dot" style="left:${xp.toFixed(2)}%;top:${y.toFixed(1)}px;background:${color}"></i>`
+        + `<span class="sp-lbl" style="left:${xp.toFixed(2)}%;top:${(isHi ? y - 17 : y + 6).toFixed(1)}px;transform:translateX(${shift})">${isHi ? '高' : '低'} ${U.fmtBannerSigned(vals[i])}</span>`;
+    };
+    return `<div class="rep-spark-wrap">${svg}${mark(ex.hi, true)}${mark(ex.lo, false)}</div>`;
   }
 
   function report(root) {
@@ -1048,10 +1065,10 @@ App.Views = (function () {
   function autoGran(fromIso, toIso) {
     if (!fromIso || !toIso) return 'day';
     const days = Math.round((Date.parse(toIso + 'T12:00:00+08:00') - Date.parse(fromIso + 'T12:00:00+08:00')) / 86400000) + 1;
-    if (days <= 40) return 'day';
-    if (days <= 200) return 'week';
-    if (days <= 1100) return 'month';
-    return 'year';
+    // 走勢折線盡量用每日資料：分桶只取每週／每月最後一天，會把期間內真正的高低點（含 ATH）吃掉
+    if (days <= 800) return 'day';
+    if (days <= 3650) return 'week';
+    return 'month';
   }
   // X 軸標籤：稀疏到 ~7 個避免擠在一起；跨年份自動帶年份
   function chartLabels(buckets, gran) {
@@ -1168,7 +1185,8 @@ App.Views = (function () {
       const conv = (mk === U.Market.us || mk === U.Market.crypto) ? rate : 1;
       return (p.dayPnl || 0) * conv;
     };
-    const groupDayChg = gid => (byGroup[gid] || []).reduce((s, p) => s + posDayTwd(p), 0);
+    const groupDayChg = gid => (byGroup[gid] || []).reduce((s, p) => s + posDayTwd(p), 0)
+      + (positions.closedToday || []).filter(c => gmap[c.symbol] === gid).reduce((s, c) => s + posDayTwd(c), 0);   // 含今日賣光的標的
     const fmtPctBadge = v => (v >= 9.95 ? Math.round(v) : v.toFixed(v >= 1 ? 0 : 1)) + '%';
     // 佔比分母：組內=該群組、投資=投資總市值、淨資產=淨資產
     const denom = gTotal => basis === 'group' ? (gTotal || sum.investTwd) : basis === 'invest' ? sum.investTwd : sum.netWorth;
@@ -1179,12 +1197,19 @@ App.Views = (function () {
     const dayPct = Math.abs(prevNet) > 1e-9 ? dayChange / Math.abs(prevNet) * 100 : 0;
     const dayArrow = dayChange > 0 ? '▲' : dayChange < 0 ? '▼' : '–';
     const lev = S.getLeverage().show ? C.leverageSummary() : null; // 槓桿倍率（設定開啟才算）
+    // ATH（歷史最高淨資產）：至少要有前一天的紀錄才顯示；今天創高 → 標示，否則顯示高點、日期與目前距離
+    const ath = S.getSnapshots().length >= 2 ? C.athInfo(sum.netWorth) : null;
+    const athDate = ath ? (iso => (iso.slice(0, 4) === U.isoDate().slice(0, 4) ? '' : iso.slice(0, 4) + '/') + (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10)))(ath.date) : '';
+    const athHtml = !ath ? '' : ath.isToday
+      ? `<div class="nw-ath"><span class="nw-ath-new">★ 今日創歷史新高</span></div>`
+      : `<div class="nw-ath">ATH <b class="nw-ath-amt">${U.fmtWhole(ath.value)}</b> · ${athDate} · 距高點 <b>${ath.drawdownPct.toFixed(1)}%</b></div>`;
     // 固定頂部：淨資產 Hero（捲動時不動）
     const topHtml = `<div class="nw-hero">
       <div class="nw-open" id="nw-open">
         <div class="nw-cap">我的淨資產 (TWD)${eyeBtnHtml('as-eye')}</div>
         <div class="nw-num">${U.fmtWhole(sum.netWorth)}</div>
         <div class="nw-day"><span style="color:${UI.pnlColor(dayChange)}">${dayArrow} ${U.fmtWhole(Math.abs(dayChange))} (${Math.abs(dayPct).toFixed(2)}%)</span>${lev ? `<button class="nw-lev" id="as-lev">槓桿 ${lev.ratio == null ? '--' : lev.ratio.toFixed(2) + '×'}</button>` : ''}</div>
+        ${athHtml}
       </div>
       <div class="nw-btns">
         ${addWithRefreshHtml('as-add-btn', '新增')}
@@ -1598,6 +1623,8 @@ App.Views = (function () {
       App.Api.fetchUsHistory(us, firstDate),
       App.Api.fetchCryptoHistory(cr, firstDate),
     ]);
+    const failed = [twH, usH, crH].reduce((a, h) => a.concat(h._failed || []), []);
+    if (failed.length) throw new Error('歷史價格抓取失敗：' + failed.join('、'));   // 不拿成本估算當成真的走勢／損益
     return C.buildGroupSeries(symbols, Object.assign({}, twH, usH, crH), S.getFxRate());
   }
   async function groupTrendPage(root, gid) {
@@ -1979,7 +2006,7 @@ App.Views = (function () {
           if (res.feeWarnSymbols && res.feeWarnSymbols.length)
             UI.toast(`⚠️ ${res.feeWarnSymbols.join('、')} 手續費異常偏高，請檢查交易紀錄`, 'error');
           App.afterDataChange();
-          if (!res.snapCount) { UI.toast('重建歷史走勢中…', 'info'); await App.rebuildHistory(); UI.toast('已重建歷史走勢', 'success'); }
+          if (!res.snapCount) { UI.toast('重建歷史走勢中…', 'info'); const n = await App.rebuildHistory(); if (n) UI.toast('已重建歷史走勢', 'success'); }
         } else UI.toast(res.msg || '匯入失敗', 'error');
       }, '匯入');
       reader.readAsText(f);
@@ -2091,7 +2118,7 @@ App.Views = (function () {
     const hasKey = !!App.Api.finnhubKey();
     const twOn = S.getAutoDivImport();
     const usOn = S.getAutoDivUs();
-    const acctName = (id, fallback) => { const a = S.getCashAccounts().find(x => x.id === id); return a ? a.name : fallback; };
+    const acctName = (id, fallback) => { const a = S.getCashAccounts().find(x => x.id === id); return a ? esc(a.name) : fallback; };
     const swRow = (label, id, on) => `<div class="s-row s-info"><span class="s-label">${label}</span>
       <label class="switch" style="margin-left:auto"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span></span></label></div>`;
     const navRow = (id, label, val) => `<button class="s-row" id="${id}"><span class="s-label">${label}</span><span class="s-val">${val}</span><span class="s-chev">›</span></button>`;
@@ -2571,7 +2598,7 @@ App.Views = (function () {
     const today = U.isoDate();
     const st = { picked: editing ? { code: p.symbol, name: p.name, market: p.market } : null };
     const symField = editing
-      ? `<div class="locked">${p.symbol}${p.name && p.name !== p.symbol ? ' · ' + p.name : ''} <span>🔒</span></div>`
+      ? `<div class="locked">${esc(p.symbol)}${p.name && p.name !== p.symbol ? ' · ' + esc(p.name) : ''} <span>🔒</span></div>`
       : `<input class="input" id="dv-sym" autocomplete="off" placeholder="代碼或名稱（2330、台積電、AAPL…）">
          <div class="suggest" id="dv-suggest"></div>`;
     const body = `

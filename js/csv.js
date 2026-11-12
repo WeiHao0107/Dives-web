@@ -20,7 +20,8 @@ App.Csv = (function () {
     'UsTotalPnlTwd', 'TwReturnPct', 'UsReturnPct', 'TotalReturnPct',
     'CryptoMarketValueTwd', 'CryptoCostBasisTwd', 'CryptoUnrealizedPnlTwd', 'CryptoRealizedPnlTwd',
     'CashAccountsTwd', 'LiabilitiesTwd', 'NetWorth',
-    'FutUnrealizedTwd', 'FutRealizedPnl', 'FutNotionalTwd', 'FutEquityTwd', 'FutDayPnl'
+    'FutUnrealizedTwd', 'FutRealizedPnl', 'FutNotionalTwd', 'FutEquityTwd', 'FutDayPnl',
+    'Est'   // 1 = 現金/負債為重建時的估計值（非當天實際紀錄）
   ];
 
   function exportCsv() {
@@ -52,7 +53,8 @@ App.Csv = (function () {
         s.cryptoUnrealizedPnlTwd || 0, s.cryptoRealizedPnlTwd || 0,
         s.cashAccountsTwd || 0, s.liabilitiesTwd || 0,
         s.netWorth != null ? s.netWorth : (s.netAsset || 0),
-        s.futUnrealizedTwd || 0, s.futRealizedPnl || 0, s.futNotionalTwd || 0, s.futEquityTwd || 0, s.futDayPnl || 0
+        s.futUnrealizedTwd || 0, s.futRealizedPnl || 0, s.futNotionalTwd || 0, s.futEquityTwd || 0, s.futDayPnl || 0,
+        s.est ? 1 : 0
       ].join(','));
     }
 
@@ -239,6 +241,7 @@ App.Csv = (function () {
           futUnrealizedTwd: n(30), futRealizedPnl: n(31), futNotionalTwd: n(32), futEquityTwd: n(33), futDayPnl: n(34),
           createdAt: Date.now(),
         });
+        if (n(35)) snaps[snaps.length - 1].est = 1;
       }
     }
 

@@ -137,6 +137,15 @@ App.Api = (function () {
 
   // ---- 台股歷史日線（FinMind，供重建歷史走勢）----
   // 回傳 { code: [{date, close}, ...]（升序）}
+  // 歷史抓取失敗的代碼記在 out._failed（不可列舉，不影響以 Object.keys/assign 使用）。
+  //   呼叫端要能分辨「抓失敗」與「真的沒資料」：重建歷史時前者若照樣以成本估算，會把已記錄的損益走勢洗成 0。
+  function markFailed(out, code) {
+    if (!out._failed) Object.defineProperty(out, '_failed', { value: [], enumerable: false });
+    out._failed.push(code);
+  }
+  // FinMind 額度用盡等錯誤會回 HTTP 200／經轉接後的 JSON：{ status: 402, msg }
+  function fmData(j) { if (j && j.status != null && j.status !== 200) throw new Error('FinMind ' + j.status + ' ' + (j.msg || '')); return (j && j.data) || []; }
+
   async function fetchTwHistory(codes, startDate) {
     const out = {};
     const queue = [...codes];
@@ -145,10 +154,10 @@ App.Api = (function () {
         const code = queue.shift();
         try {
           const j = await fetchJson(fmUrl({ dataset: 'TaiwanStockPrice', data_id: code, start_date: startDate }));
-          const rows = (j.data || []).map(r => ({ date: r.date, close: U.parseNum(r.close) }))
+          const rows = fmData(j).map(r => ({ date: r.date, close: U.parseNum(r.close) }))
             .filter(r => r.close != null).sort((a, b) => a.date < b.date ? -1 : 1);
           out[code] = rows;
-        } catch (e) { out[code] = []; }
+        } catch (e) { out[code] = []; markFailed(out, code); }
       }
     }
     await Promise.all([worker(), worker(), worker()]);
@@ -164,10 +173,10 @@ App.Api = (function () {
         const code = queue.shift();
         try {
           const j = await fetchJson(fmUrl({ dataset: 'USStockPrice', data_id: code, start_date: startDate }));
-          const rows = (j.data || []).map(r => ({ date: r.date, close: U.parseNum(r.Close) }))
+          const rows = fmData(j).map(r => ({ date: r.date, close: U.parseNum(r.Close) }))
             .filter(r => r.close != null).sort((a, b) => a.date < b.date ? -1 : 1);
           out[code] = rows;
-        } catch (e) { out[code] = []; }
+        } catch (e) { out[code] = []; markFailed(out, code); }
       }
     }
     await Promise.all([worker(), worker(), worker()]);
@@ -385,7 +394,7 @@ App.Api = (function () {
         }
         rows.sort((a, b) => a.date < b.date ? -1 : 1);
         out[c] = rows;
-      } catch (e) { console.warn('CoinGecko history failed', c, e); }
+      } catch (e) { console.warn('CoinGecko history failed', c, e); markFailed(out, c); }
     }
     return out;
   }
@@ -405,8 +414,8 @@ App.Api = (function () {
     for (const c in byContract) {
       try {
         const j = await fetchJson(fmUrl({ dataset: 'TaiwanFuturesDaily', data_id: c, start_date: startDate }));
-        for (const m of byContract[c]) out[c + '@' + m] = App.Futures.parseFuturesDaily(j.data || [], m);
-      } catch (e) { /* 留空 → 重建時以均價估 */ }
+        for (const m of byContract[c]) out[c + '@' + m] = App.Futures.parseFuturesDaily(fmData(j), m);
+      } catch (e) { for (const m of byContract[c]) markFailed(out, c + '@' + m); }
     }
     return out;
   }
