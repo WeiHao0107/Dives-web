@@ -1195,7 +1195,7 @@ App.Views = (function () {
   /* ===================== 資產（淨資產）===================== */
   // 手風琴：一次只展開一類（cash|invest|liab）；detailGroup = 群組詳情頁
   //   nw/gt 僅保留各自的 metric（走勢/漲幅/投入）與 year（漲幅選年）；時間區間改用共用的 chartRange
-  const as = { openCat: 'invest', detailGroup: null, groupAllocSel: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
+  const as = { openCat: null, detailGroup: null, groupAllocSel: null, detailFut: false, detailAsc: false, catChart: null, nw: { metric: 'net', year: new Date().getFullYear() },
     groupTrend: null, gt: { metric: 'line', year: new Date().getFullYear() }, gtCache: null,
     detailSym: null, stk: { mode: 'value', key: null, data: null, loading: null, error: null } };   // 個股頁：mode＝value(市值與成本)｜price(股價與均價)
   // 所有走勢圖共用的「選擇日期」區間（持久化：關閉程式後重開仍保留同一起始/結束日）
@@ -1904,9 +1904,8 @@ App.Views = (function () {
       ${hasReal ? `<div class="gd-sub"><span>已實現 <b style="color:${colorOf(gp.realizedTwd)}">${compact(gp.realizedTwd)}</b></span><span>含已實現合計 <b style="color:${colorOf(gp.totalTwd)}">${compact(gp.totalTwd)}</b></span></div>` : ''}
       <div class="card stk-chart">
         <div class="seg seg-wide" id="stk-mode"><button class="seg-btn ${as.stk.mode === 'value' ? 'active' : ''}" data-v="value">市值與成本</button><button class="seg-btn ${as.stk.mode === 'price' ? 'active' : ''}" data-v="price">股價與均價</button></div>
-        <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>買進</span><span><i class="d2"></i>賣出</span></div>
+        <div class="stk-lg"><span><i class="l1"></i>${as.stk.mode === 'value' ? '市值' : '股價'}</span><span><i class="l2"></i>${as.stk.mode === 'value' ? '成本' : '均價'}</span><span><i class="d1"></i>Buy</span><span><i class="d2"></i>Sell</span></div>
         <div class="stk-host" id="stk-host"></div>
-        <div class="stk-hint">兩條線之間：紅色是賺、綠色是賠</div>
       </div>
       <div class="gd-lh"><span>交易紀錄 ${txs.length} 筆</span></div>
       <div class="card stk-txs">${txRows}</div>`;
@@ -1938,7 +1937,8 @@ App.Views = (function () {
       App.Charts.compareChart(host, series, {
         aLabel: value ? '市值' : '股價', bLabel: value ? '成本' : '均價', height: 220, xLabels,
         valueFmt: x => value ? 'NT$ ' + U.fmtKMBB(x) : cur + U.formatPrice(x),
-        marks: data.trades.map(t => ({ idx: t.idx, type: t.type, text: `${t.type === 'BUY' ? '買' : '賣'} ${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}` })),
+        marks: data.trades.map(t => ({ idx: t.idx, type: t.type, text: `${t.type === 'BUY' ? 'Buy' : 'Sell'} ${U.formatShares(t.shares)}${shareUnit(mk)} @ ${cur}${U.formatPrice(t.price)}` })),
+        extremeFmt: x => value ? U.fmtKMBB(x) : cur + U.formatPrice(x),   // 主線的最高／最低點標示
       });
     };
     if (st.key === key && st.data) draw(st.data);

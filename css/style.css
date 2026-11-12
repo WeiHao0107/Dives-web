@@ -611,7 +611,6 @@ input, select { font-family: inherit; font-size: 15px; }
 .stk-lg .d2 { border-color: var(--loss); }
 .stk-host { position: relative; min-height: 220px; }
 .stk-host .chart-empty { padding: 86px 0; text-align: center; font-size: 13px; color: var(--sub); line-height: 1.9; }
-.stk-hint { font-size: 11px; color: var(--sub); text-align: center; padding-top: 2px; }
 .stk-txs { overflow: hidden; margin-bottom: 14px; padding: 0; }
 .stk-tx { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 13px; border-top: 1px solid var(--divider); text-align: left; color: var(--text); font: inherit; -webkit-tap-highlight-color: transparent; }
 .stk-tx:first-child { border-top: none; }

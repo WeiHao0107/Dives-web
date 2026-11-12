@@ -539,7 +539,8 @@ App.Charts = (function () {
   /* ---- 兩線比較圖（個股頁）：主線 a（市值／股價）對 成本線 b（成本／均價，階梯虛線）----
    * 兩線之間上色：a 在 b 上方＝賺（紅）、下方＝賠（綠）；買進／賣出各一個圓點
    * points: [{ date:'YYYY-MM-DD', a:number, b:number|null }]（b 為 null＝當時沒有持股，成本線中斷）
-   * opts: { aLabel, bLabel, color, valueFmt, height, xLabels:[{idx,label}], marks:[{idx, type:'BUY'|'SELL', text}] }
+   * opts: { aLabel, bLabel, color, valueFmt, height, xLabels:[{idx,label}], marks:[{idx, type:'BUY'|'SELL', text}],
+   *         extremeFmt?(v) → 有給就標出主線的最高／最低點與數值 }
    */
   let cmpSeq = 0;
   function compareChart(container, points, opts) {
@@ -549,7 +550,7 @@ App.Charts = (function () {
     const valueFmt = opts.valueFmt || (v => App.Util.fmtKMBB(v));
     const color = opts.color || '#6D5FD5', GAIN = '#E53935', LOSS = '#43A047';
     const H = opts.height || 210, W = container.clientWidth || 340;
-    const padL = 46, padR = 10, padT = 12, padB = 22;
+    const padL = 46, padR = 10, padT = opts.extremeFmt ? 20 : 12, padB = 22;   // 有最高點標籤時上方多留一點
     const chartW = W - padL - padR, chartH = H - padT - padB, n = points.length;
     let lo = Infinity, hi = -Infinity;
     for (const p of points) { lo = Math.min(lo, p.a); hi = Math.max(hi, p.a); if (p.b != null) { lo = Math.min(lo, p.b); hi = Math.max(hi, p.b); } }
@@ -591,6 +592,19 @@ App.Charts = (function () {
       svg += `<circle cx="${f(xAt(m.idx))}" cy="${f(yAt(points[m.idx].a))}" r="4" style="fill:var(--card)" stroke="${m.type === 'SELL' ? LOSS : GAIN}" stroke-width="2"/>`;
     }
     svg += `<circle cx="${f(xAt(n - 1))}" cy="${f(yAt(points[n - 1].a))}" r="3.2" fill="${color}"/>`;
+    // 主線的最高／最低點：圓點＋「高／低 數值」；靠邊時改靠左／靠右對齊，放不下就換到點的另一側
+    const ex = opts.extremeFmt ? extremes(points.map(p => p.a)) : null;
+    if (ex) {
+      const mark = (i, isHi) => {
+        const x = xAt(i), y = yAt(points[i].a);
+        const above = isHi ? (y - 16 >= 0) : (y + 15 > padT + chartH);
+        const anchor = x < padL + 40 ? 'start' : x > padL + chartW - 40 ? 'end' : 'middle';
+        const tx = anchor === 'start' ? x - 3 : anchor === 'end' ? x + 3 : x;
+        return `<circle cx="${f(x)}" cy="${f(y)}" r="3.2" fill="${color}" style="stroke:var(--card)" stroke-width="1.5"/>`
+          + `<text class="ch-mark" x="${f(tx)}" y="${f(above ? y - 7 : y + 14)}" text-anchor="${anchor}">${isHi ? '高' : '低'} ${opts.extremeFmt(points[i].a)}</text>`;
+      };
+      svg += mark(ex.hi, true) + mark(ex.lo, false);
+    }
     if (opts.xLabels) for (const e of opts.xLabels)
       svg += `<text x="${xAt(e.idx)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#78716c">${e.label}</text>`;
     svg += `<line class="cursor-line" x1="0" y1="${padT}" x2="0" y2="${padT + chartH}" stroke="#a8a29e" stroke-width="1" stroke-dasharray="3 2" visibility="hidden"/></svg>`;
