@@ -437,10 +437,10 @@ input, select { font-family: inherit; font-size: 15px; }
 .nw-eye svg { width: 17px; height: 17px; }
 .nw-eye:active { opacity: 0.5; }
 /* 新增鈕：頁面右下角的懸浮鈕（定位在 .page 上，不隨清單捲動）；清單底部多留空間，最後一列不會被蓋住 */
-.nw-add { position: absolute; right: 16px; bottom: 16px; z-index: 5; width: 54px; height: 54px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(109,95,213,0.4); }
+.nw-add { position: absolute; right: 16px; bottom: 16px; z-index: 5; width: 54px; height: 54px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 55%, transparent); -webkit-backdrop-filter: saturate(160%) blur(10px); backdrop-filter: saturate(160%) blur(10px); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(109,95,213,0.18); }   /* 半透明：蓋在清單上時看得到後面的內容 */
 .nw-add svg { width: 26px; height: 26px; }
 .page:has(> .nw-add) > .page-list { padding-bottom: 92px; }
-.nw-add:active { transform: scale(0.93); }
+.nw-add:active { transform: scale(0.93); background: var(--accent); }
 .ga-item b { display: block; font-size: 15px; }
 .ga-item .ga-sub { display: block; font-size: 12px; color: var(--sub); margin-top: 2px; }
 .nw-cap { font-size: 14px; font-weight: 600; color: var(--text); }   /* 灰色細字在 iPhone 上看起來發糊 → 用正文色、加粗 */
