@@ -37,11 +37,12 @@ App.Views = (function () {
     return `<button class="ref-btn" id="notif-btn" aria-label="通知${n > 0 ? '，' + n + ' 筆交易待確認' : ''}">${NTF_ICONS.bell}${mark}</button>`;
   }
   // ＋ 上方放 🔔（垂直堆疊、右對齊，不重疊）
-  function addWithRefreshHtml(addId, addLabel) {
-    return `<div class="add-wrap">
-      ${notifBtnHtml()}
-      <button class="nw-add" id="${addId}" aria-label="${addLabel}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg></button>
-    </div>`;
+  // 右上角只放通知鈴鐺；＋ 是右下角的懸浮鈕（fabHtml，放在 .page 最後，不隨清單捲動）
+  function addWithRefreshHtml() {
+    return `<div class="add-wrap">${notifBtnHtml()}</div>`;
+  }
+  function fabHtml(addId, addLabel) {
+    return `<button class="nw-add" id="${addId}" aria-label="${addLabel}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg></button>`;
   }
   function bindRefresh(root) {
     const b = root.querySelector('#notif-btn');
@@ -304,14 +305,14 @@ App.Views = (function () {
         <div class="nw-day" style="color:${UI.pnlColor(day)}">${arrow} ${U.fmtWhole(Math.abs(day))} (${Math.abs(dayPct).toFixed(2)}%)</div>
       </div>
       <div class="nw-btns">
-        ${addWithRefreshHtml('pf-add-btn', '新增交易')}
+        ${addWithRefreshHtml()}
       </div>
     </div>`;
 
     // 市場卡（可同時展開多個；空市場不顯示）；最上方是持股分布卡
     const aUi = S.getAllocUi();
     let html = positions.length ? allocCardHtml({ open: aUi.open, by: aUi.by, sel: pf.allocSel }) : '';
-    if (!positions.length && !fut) html += `<div class="empty" style="padding:48px 16px">尚無持倉，點右上 ＋ 新增交易</div>`;
+    if (!positions.length && !fut) html += `<div class="empty" style="padding:48px 16px">尚無持倉，點右下 ＋ 新增交易</div>`;
     for (const M of MKTS) {
       const list = byMk[M.key];
       if (!list.length) continue;
@@ -370,7 +371,7 @@ App.Views = (function () {
     if (fut) html += futPortfolioCard(fut, isOpen('fut'));
 
     // 上方（hero+統計+排序）固定，市場卡清單獨立捲動
-    root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${html}</div></div>`;
+    root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${html}</div>${fabHtml('pf-add-btn', '新增交易')}</div>`;
     attachPullRefresh(root.querySelector('.page-list'));
 
     // 事件
@@ -1375,7 +1376,7 @@ App.Views = (function () {
         ${athHtml}
       </div>
       <div class="nw-btns">
-        ${addWithRefreshHtml('as-add-btn', '新增')}
+        ${addWithRefreshHtml()}
       </div>
     </div>`;
     let html = ''; // 捲動內容：分類卡
@@ -1445,7 +1446,7 @@ App.Views = (function () {
           <div class="as-val">${U.fmtWhole(twd)}</div>
         </div>`;
       }
-      if (!cashAccts.length) html += `<div class="empty" style="padding:14px">尚無現金帳戶，點右上角 ＋ 新增</div>`;
+      if (!cashAccts.length) html += `<div class="empty" style="padding:14px">尚無現金帳戶，點右下角 ＋ 新增</div>`;
       html += `</div>`;
     }
     html += `</div>`;
@@ -1488,7 +1489,7 @@ App.Views = (function () {
           <div class="as-val">${U.fmtWhole(mv)}</div>
         </div>`;
       }
-      if (!positions.length) html += `<div class="empty" style="padding:16px">尚無持倉，點右上角 ＋ 新增投資</div>`;
+      if (!positions.length) html += `<div class="empty" style="padding:16px">尚無持倉，點右下角 ＋ 新增投資</div>`;
       html += `</div>`;
     }
     html += `</div>`;
@@ -1509,12 +1510,12 @@ App.Views = (function () {
           <div class="as-val" style="color:${UI.GAIN}">−${U.fmtWhole(twd)}</div>
         </div>`;
       }
-      if (!liabs.length) html += `<div class="empty" style="padding:14px">尚無負債，點右上角 ＋ 新增</div>`;
+      if (!liabs.length) html += `<div class="empty" style="padding:14px">尚無負債，點右下角 ＋ 新增</div>`;
       html += `</div>`;
     }
     html += `</div>`;
 
-    root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${html}</div></div>`;
+    root.innerHTML = `<div class="page"><div class="page-top">${topHtml}</div><div class="page-list">${html}</div>${fabHtml('as-add-btn', '新增')}</div>`;
     attachPullRefresh(root.querySelector('.page-list'));
 
     // ── 事件 ─────────────────────────────────────────────
