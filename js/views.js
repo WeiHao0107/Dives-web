@@ -86,6 +86,8 @@ App.Views = (function () {
   // 清單狀態跨重開保留（改完單筆回來時勾選不會跑掉）：sel = 勾選的 id；errs = 上次匯入失敗的原因
   const ibx = { sel: null, errs: {} };
   function inboxMoney(it, v) { return (it.market === U.Market.us || it.market === U.Market.crypto || (!it.market && U.guessMarketBySymbol(it.symbol) === U.Market.us) ? '$' : '') + U.formatPrice(v); }
+  // 費用與合計：美股／加密照原樣（有小數）；台股是整數元 → 不帶小數
+  function inboxAmt(it, v) { const s = inboxMoney(it, v); return s[0] === '$' ? s : U.fmtWhole(v); }
   function openInboxReview() {
     const I = App.Inbox, pend = I.pending();
     if (!pend.length) { ibx.sel = null; ibx.errs = {}; UI.closeSheet(); App.renderCurrent && App.renderCurrent(); return; }
@@ -112,10 +114,11 @@ App.Views = (function () {
         sub = `${it.lots} 口 @ ${U.fmtWhole(it.price)}${it.fee ? ' · 費 ' + U.fmtWhole(it.fee) : ''}${it.tax ? ' · 稅 ' + U.fmtWhole(it.tax) : ''}`;
         amt = '';
       } else {
-        const cost = it.fee + (it.tax || 0);
+        // 費用是估算值、且你已輸入過 → 只校正日期，不顯示也不計入估算費用
+        const cost = it.feeEst && dup[it.id] ? 0 : it.fee + (it.tax || 0);
         name = `<b>${esc(it.symbol)}</b>${it.name ? `<em>${esc(it.name)}</em>` : ''}`;
-        sub = `${U.formatShares(it.shares)} 股 @ ${inboxMoney(it, it.price)}${cost ? ' · 費 ' + inboxMoney(it, cost) : ''}`;
-        amt = `<b>${inboxMoney(it, it.shares * it.price + (it.side === 'BUY' ? cost : -cost))}</b>`;
+        sub = `${U.formatShares(it.shares)} 股 @ ${inboxMoney(it, it.price)}${cost ? ` · <span style="white-space:nowrap">${it.feeEst ? '估費' : '費'} ${inboxAmt(it, cost)}</span>` : ''}`;
+        amt = `<b>${inboxAmt(it, it.shares * it.price + (it.side === 'BUY' ? cost : -cost))}</b>`;
       }
       return `<div class="ibx-it${dup[it.id] ? ' dup' : ''}" data-id="${esc(it.id)}">
         <button class="ibx-ck${on ? ' on' : ''}" data-ck="${esc(it.id)}" role="checkbox" aria-checked="${on}" aria-label="選取這筆"></button>
@@ -138,7 +141,7 @@ App.Views = (function () {
       return `<div class="ibx-gh"><b>${esc(I.brokerLabel(b))}</b>${acct}</div>${bal}<div class="ibx-list">${items.map(rowHtml).join('')}</div>`;
     };
     const nDup = pend.filter(it => dup[it.id]).length;
-    const body = `<div class="ibx-top"><span>${pend.length} 筆待確認${nDup ? `，其中 ${nDup} 筆你已輸入過（確認後校正日期與費用，不會重複）` : '，點一筆可先修改'}</span><button class="ibx-all" id="ibx-all"></button></div>${brokers.map(groupHtml).join('')}`;
+    const body = `<div class="ibx-top"><span>${pend.length} 筆待確認${nDup ? `，其中 ${nDup} 筆你已輸入過（確認後校正${pend.some(it => dup[it.id] && it.kind !== 'fut-cash' && !it.feeEst) ? '日期與費用' : '日期'}，不會重複）` : '，點一筆可先修改'}</span><button class="ibx-all" id="ibx-all"></button></div>${brokers.map(groupHtml).join('')}`;
     const ov = UI.openSheet('待確認交易', body, `<button class="btn btn-ghost" id="ibx-skip">略過選取</button><button class="btn btn-primary" id="ibx-import"></button>`);
     // 勾選只就地更新（不重開 sheet，避免閃動與捲動位置跑掉）
     const paintSel = () => {
@@ -213,7 +216,7 @@ App.Views = (function () {
     }
     openTxForm(null, null, {
       preset: { symbol: it.symbol, name: it.name, market: it.market || U.guessMarketBySymbol(it.symbol), isBuy: it.side === 'BUY', date: it.date, time: I.itemTime(it),
-        shares: it.shares, price: it.price, fee: Math.round((it.fee + (it.tax || 0)) * 100) / 100, accountId: I.accountFor(it.broker), source: 'inbox:' + it.broker, note: '來源：' + src + (matched ? '。你已輸入過相同的紀錄；在這裡按「匯入這筆」會另外新增一筆。只想校正日期請回清單勾選後按確認。' : '') },
+        shares: it.shares, price: it.price, fee: Math.round((it.fee + (it.tax || 0)) * 100) / 100, accountId: I.accountFor(it.broker), source: 'inbox:' + it.broker, note: '來源：' + src + (it.feeEst ? '。對帳單沒有列手續費與交易稅，這裡的費用是用牌告費率估算的，可以自行修改' : '') + (matched ? '。你已輸入過相同的紀錄；在這裡按「匯入這筆」會另外新增一筆。只想校正日期請回清單勾選後按確認。' : '') },
       onAdded: () => { I.markDone([it.id], 'i'); done(); },
       after: (sym, time) => { if (U.isoDate(new Date(time)) < U.isoDate() && App.rebuildHistory) App.rebuildHistory().catch(() => {}); UI.toast('已匯入', 'success'); back(); },
       onCancel: back, onSkip: skip,

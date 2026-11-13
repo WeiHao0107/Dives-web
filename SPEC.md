@@ -95,7 +95,7 @@ Market = { tse, otc, rotc, us, crypto, unknown }
 
 - `id`：腳本產生，同一筆成交每次執行都必須相同（App 靠它記住已匯入／已略過）；同價同量的多筆成交要用序號區分。
 - `date`／`time`（選填，`HH:MM[:SS]`）為台灣時間；沒有 `time` → 當天中午，同日依檔案順序。
-- `broker`：`cathay`｜`yuanta-fut`｜`yuanta`｜`firstrade`（其他字串照樣顯示）。`fee` 為整筆合計；期貨 `tax` 省略則依合約自動算；股票的 `tax` 併入手續費。
+- `broker`：`cathay`｜`yuanta-fut`｜`yuanta`｜`firstrade`（其他字串照樣顯示）。`fee` 為整筆合計；期貨 `tax` 省略則依合約自動算；股票的 `tax` 併入手續費。股票可帶 `feeEst: true`＝對帳單沒有列費用、`fee`／`tax` 是腳本估的（元大證券成交回報）：清單標「估費」，校正既有紀錄時只改日期、不覆蓋原本的費用。
 - 期貨入出金：`{ id, broker, kind:'fut-cash', date, type:'DEPOSIT'|'WITHDRAW', amount, source? }`。另有頂層 `balances:[{ broker, date, balance }]`＝各券商最新對帳單的帳戶餘額，只供核對。
 - 格式不對的項目整筆丟掉（不猜）；腳本應保留近 60 天的項目，舊的可移除。
 - 本機狀態：`dives_inbox`（收件匣快取，不同步）、`dives_inbox_done`（`{ id: [ 'i'已匯入 | 's'已略過, 時間 ] }`，同步）、`dives_inbox_cfg`（`{ acct: { 券商: 現金帳戶 id } }`，同步）。
@@ -218,6 +218,7 @@ netWorthBuckets(snapshots, gran, cashLiab) -> Bucket[]
 - **I17**：`athInfo(currentNw)` = 歷史最高淨資產（各日快照 `netWorth` 與今天即時值取大），回傳日期、是否今天創高、目前距高點 %。走勢折線以每日資料畫（≤ 800 天），並標出第一條線的最高／最低點（`Charts.extremes`）；報表迷你走勢不標。
 - **I22**：歷史換算用當天匯率 —— `fxFn(fx)`：`fx` 給數字則全程同一個匯率，給序列 `[{date, rate}]` 則取該日或之前最近一筆。`symbolSeries`／`buildGroupSeries`／`rebuildSnapshots` 的匯率參數都接受兩者；抓不到歷史匯率（`Api.fetchFxHistory` 回 `[]`）就退回目前匯率。
 - **I23**：年化報酬含期貨（僅在已連結保證金帳戶時）—— `Futures.xirrFlows`：有日期的入出金（`flows`）照日期、其餘入金（＝餘額 − 已實現淨額 − 有紀錄入出金）算在第一筆交易那天、終值為目前權益數；淨流量恆等於期貨總損益。
+- **I26**：待確認交易帶 `feeEst`（費用為估算值）時，配到既有手動紀錄的校正只改日期並加來源標記，`fee` 保留原值；沒配到的照估算值新增。
 - **I24**：待確認交易配到既有手動紀錄（`Inbox.matchExisting`）時，確認＝校正那筆的日期與費用並加上 `inbox:` 來源標記，不新增；一筆既有紀錄只配一個項目，有來源標記的不再配對。入出金在餘額已與對帳單相符時只補記日期（`addCashFlow({adjust:false})`）。
 - **I25**：隱藏金額時，群組頁與個股頁的金額（`.pv`）一併遮蔽，百分比照常顯示；個股市值走勢的刻度與高低點數字不顯示。
 - **I21**：`symbolSeries(symbol, hist)` 回傳個股每日走勢：`cost` 是當時持股的成本（賣出後減少）、沒有持股的日子 `avgCost = null`、`mv = cost = 0`；沒有歷史價時以均價估。歷史價抓失敗 → 個股頁顯示載入失敗，不以成本估算畫走勢。

@@ -4,7 +4,7 @@
  * 來源：同一個同步 Gist 裡的獨立檔 dives-inbox.json（由排程腳本寫入，App 只讀不寫）：
  *   { app:'dives-inbox', version:1, updatedAt:ms, items:[ ... ] }
  *   股票：{ id, broker, kind:'stock', date:'YYYY-MM-DD', time?:'HH:MM[:SS]', symbol, name?, market?, side:'BUY'|'SELL',
- *           shares, price, fee?, tax?, source? }
+ *           shares, price, fee?, tax?, feeEst?(費用是估算值：對帳單沒有列費用), source? }
  *   期貨：{ id, broker, kind:'fut',   date, time?, contract:'TX'|'MTX'|'TMF', month:'YYYYMM', side, lots, price,
  *           fee?(整筆合計), tax?(省略則依合約自動算), source? }
  *   期貨入出金：{ id, broker, kind:'fut-cash', date, type:'DEPOSIT'|'WITHDRAW', amount, source? }
@@ -17,6 +17,7 @@
  *
  * 和既有紀錄相同的項目（多半是之前手動輸入的）：確認時不會再新增一筆，而是「校正」那筆既有紀錄
  *   ——把日期與手續費改成對帳單上的值（手動輸入的日期常是記帳那天、不是成交日）。
+ *   費用是估算值（feeEst）時只校正日期：手動輸入的費用比估算可靠，不覆蓋。
  *   dives_inbox_cfg   { acct: { 券商: 現金帳戶 id } }（各券商預設扣款／入款帳戶）
  * ======================================================================= */
 window.App = window.App || {};
@@ -60,7 +61,7 @@ App.Inbox = (function () {
     const symbol = U.sanitizeSymbol(String(x.symbol || '')), shares = +x.shares;
     if (!symbol || !(shares > 0)) return null;
     const mk = x.market ? U.normalizeMarketKey(String(x.market)) : '';
-    return Object.assign(it, { kind: 'stock', symbol, shares, name: x.name ? String(x.name) : '', market: mk && mk !== U.Market.unknown ? mk : '', tax: Math.max(0, +x.tax || 0) });
+    return Object.assign(it, { kind: 'stock', symbol, shares, name: x.name ? String(x.name) : '', market: mk && mk !== U.Market.unknown ? mk : '', tax: Math.max(0, +x.tax || 0), feeEst: x.feeEst === true });
   }
 
   // Gist 檔內容 → 本機快取；回傳內容是否有變。json 為 null（Gist 裡沒有這個檔）→ 不動
@@ -174,7 +175,8 @@ App.Inbox = (function () {
     } else if (m && m.kind === 'tx') {
       const old = S.getTransactions().find(t => t.id === m.id);
       if (!old) return { ok: false, msg: '找不到要校正的那筆紀錄' };
-      res = App.Calc.updateTransaction(m.id, { type: old.type, shares: old.shares, price: old.price, fee: it.fee + (it.tax || 0), time: itemTime(it) });
+      // 對帳單沒有列費用（feeEst）→ 保留原本手動輸入的費用，只校正日期
+      res = App.Calc.updateTransaction(m.id, { type: old.type, shares: old.shares, price: old.price, fee: it.feeEst ? (old.fee || 0) : it.fee + (it.tax || 0), time: itemTime(it) });
       if (res.ok) { const txs = S.getTransactions(); const t = txs.find(x => x.id === m.id); if (t) { t.source = src; S.setTransactions(txs); } }
     } else {
       res = App.Calc.addTransaction({ symbolInput: it.symbol, type: it.side, shares: it.shares, price: it.price, fee: it.fee + (it.tax || 0),

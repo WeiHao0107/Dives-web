@@ -133,6 +133,28 @@ test('和手動紀錄相同的交易：確認＝校正那筆的日期與手續�
   assert.deepEqual(I.matchExisting(I.pending()), {});
 });
 
+test('對帳單沒有列費用（feeEst）：新增時用估算值；校正既有紀錄時只改日期、保留手動輸入的費用', () => {
+  S.setCashAccounts([{ id: 'twd', name: '台幣', currency: 'TWD', balance: 500000 }]);
+  // 手動輸入：賣出 1000 股，費用填了實際的 60（對帳單估 80）
+  C.addTransaction({ symbolInput: '00631L', type: 'BUY', shares: 5000, price: 30, fee: 0, time: T('2026-11-01') });
+  C.addTransaction({ symbolInput: '00631L', type: 'SELL', shares: 1000, price: 33, fee: 60, accountId: 'twd', time: T('2026-11-14', '10:00') });
+  const manualId = S.getTransactions().find(t => t.type === 'SELL').id;
+  const y = o => Object.assign({ broker: 'yuanta', kind: 'stock', date: '2026-11-13', symbol: '00631L', name: '元大台灣50正2', side: 'SELL', feeEst: true }, o);
+  feed([y({ id: 'y1', time: '09:31:04', shares: 1000, price: 33, fee: 47, tax: 33 }), y({ id: 'y2', time: '13:09:49', shares: 4000, price: 32.09, fee: 182, tax: 128 })]);
+  assert.deepEqual(S.getInbox().items.map(x => x.feeEst), [true, true]);
+  const m = I.matchExisting(I.pending());
+  assert.deepEqual(m, { y1: { kind: 'tx', id: manualId } });
+  const r = I.importMany(I.pending(), () => 'twd', m);
+  assert.deepEqual([r.ok, r.fixed, r.failed.length], [1, 1, 0]);
+  const txs = S.getTransactions();
+  const fixed = txs.find(t => t.id === manualId), added = txs.find(t => t.type === 'SELL' && t.id !== manualId);
+  assert.deepEqual([U.isoDate(new Date(fixed.time)), fixed.fee, fixed.source], ['2026-11-13', 60, 'inbox:yuanta']);   // 日期校正、費用不動
+  assert.deepEqual([added.shares, added.price, added.fee, added.source], [4000, 32.09, 310, 'inbox:yuanta']);         // 新增的用估算值（費＋稅）
+  // 沒標 feeEst 的項目照舊：缺漏或 false → false
+  feed([stock()]);
+  assert.equal(S.getInbox().items[0].feeEst, false);
+});
+
 test('期貨交易的校正：改日期、手續費與稅，並標記來源', () => {
   F.addTrade({ contract: 'TX', month: '202611', side: 'BUY', lots: 1, price: 27650, fee: 40, time: T('2026-11-07') });
   const id = F.getState().trades[0].id;
