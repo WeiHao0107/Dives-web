@@ -112,3 +112,116 @@ test('處理紀錄與設定會跟著主資料同步；收件匣快取不會', ()
   assert.ok(data.dives_inbox_done && data.dives_inbox_cfg);
   assert.equal(data.dives_inbox, undefined);
 });
+
+// ── 已處理清單：留著、可再修改、可取消匯入 ──
+const cashIt = o => Object.assign({ id: 'k1', broker: 'yuanta-fut', kind: 'fut-cash', date: '2026-11-06', type: 'DEPOSIT', amount: 50000 }, o);
+
+test('已處理清單：處理過的項目留著（新→舊），記下對應的紀錄；匯入後改過內容 → 標示已改', () => {
+  feed([stock({ id: 'a', date: '2026-11-10' }), stock({ id: 'b', date: '2026-11-11', symbol: 'QQQ' }), stock({ id: 'c', date: '2026-11-12', symbol: 'SPY' }), fut()]);
+  const byId = id => S.getInbox().items.find(x => x.id === id);
+  assert.equal(I.importItem(byId('a')).ok, true);
+  assert.equal(I.importItem(byId('f1')).ok, true);
+  I.skip(['b']);
+  assert.deepEqual(I.processed().map(x => x.id), ['b', 'a', 'f1']);
+  assert.deepEqual([I.processedCount(), I.pendingCount()], [3, 1]);
+  assert.ok(I.lastDoneAt() > 0);
+  const tx = S.getTransactions()[0], tr = F.getState().trades[0];
+  assert.deepEqual([I.doneOf(byId('a')).status, I.doneOf(byId('a')).ref], ['i', tx.id]);
+  assert.deepEqual([I.doneOf(byId('f1')).status, I.doneOf(byId('f1')).ref], ['i', tr.id]);
+  assert.deepEqual([I.doneOf(byId('b')).status, I.doneOf(byId('c'))], ['s', null]);
+  const l = I.links();
+  assert.deepEqual(Object.keys(l).sort(), ['a', 'f1']);              // 略過的沒有對應紀錄
+  assert.deepEqual([l.a.kind, l.a.rec.id, l.f1.kind, l.f1.rec.id], ['tx', tx.id, 'fut', tr.id]);
+  assert.equal(I.edited(byId('a'), l.a), false);
+  C.updateTransaction(tx.id, { type: 'BUY', shares: 2, price: 707.32, fee: 9.99, time: tx.time });   // 只改費用 → 不算改過
+  assert.equal(I.edited(byId('a'), I.links().a), false);
+  C.updateTransaction(tx.id, { type: 'BUY', shares: 3, price: 707.32, fee: 9.99, time: tx.time });
+  assert.equal(I.edited(byId('a'), I.links().a), true);
+  C.deleteTransaction(tx.id);                                        // 紀錄被刪掉 → 找不到對應
+  assert.equal(I.links().a, undefined);
+});
+
+test('取消匯入（新增的那種）：刪掉那筆紀錄、現金帳戶沖回、放回待確認', () => {
+  S.setCashAccounts([{ id: 'usd', name: '國泰美金', currency: 'USD', balance: 5000 }]);
+  feed([stock()]);
+  const it = I.pending()[0];
+  I.importItem(it, { accountId: 'usd' });
+  assert.equal(S.getTransactions().length, 1);
+  const r = I.undo(it);
+  assert.deepEqual([r.ok, r.symbol, r.removed, r.kept], [true, 'VOO', true, false]);
+  assert.equal(S.getTransactions().length, 0);
+  assert.equal(S.getCashAccounts()[0].balance, 5000);
+  assert.deepEqual([I.pendingCount(), I.processedCount()], [1, 0]);
+  assert.equal(I.undo(it).ok, false);                                // 已經不在已處理裡
+});
+
+test('取消匯入（校正既有紀錄的那種）：手動輸入的紀錄保留，只拿掉來源標記；放回待確認後仍被認成已輸入', () => {
+  C.addTransaction({ symbolInput: 'VOO', type: 'BUY', shares: 2, price: 707.32, fee: 2, market: 'us', time: T('2026-11-12') });
+  feed([stock()]);
+  const it = I.pending()[0];
+  const r0 = I.importItem(it, { match: I.matchExisting([it])[it.id] });
+  assert.deepEqual([r0.ok, r0.fixed], [true, true]);
+  const id = S.getTransactions()[0].id;
+  assert.deepEqual([I.doneOf(it).status, I.doneOf(it).ref, S.getTransactions()[0].source], ['f', id, 'inbox:cathay']);
+  const r = I.undo(it);
+  assert.deepEqual([r.ok, r.removed, r.kept], [true, false, true]);
+  assert.equal(S.getTransactions().length, 1);
+  assert.equal(S.getTransactions()[0].source, undefined);
+  assert.equal(I.pendingCount(), 1);
+  assert.equal(I.isDuplicate(it), true);                             // 再確認一次也只會校正，不會重複入帳
+});
+
+test('取消匯入：會讓之後的賣出超賣 → 不動、回報原因', () => {
+  feed([stock({ id: 'buy', date: '2026-11-10' }), stock({ id: 'sell', date: '2026-11-11', side: 'SELL' })]);
+  const r = I.importMany(I.pending(), null);
+  assert.equal(r.ok, 2);
+  const buy = S.getInbox().items.find(x => x.id === 'buy');
+  const u = I.undo(buy);
+  assert.equal(u.ok, false);
+  assert.match(u.msg, /無法刪除/);
+  assert.deepEqual([S.getTransactions().length, I.pendingCount(), I.doneOf(buy).status], [2, 0, 'i']);
+});
+
+test('取消匯入：已略過的只放回待確認；期貨交易刪除；入出金把保證金扣回', () => {
+  S.setCashAccounts([{ id: 'm', name: '保證金', currency: 'TWD', balance: 100000 }]);
+  F.patchState({ accountId: 'm' });
+  feed([stock(), fut(), cashIt()]);
+  const byId = id => S.getInbox().items.find(x => x.id === id);
+  I.skip(['c1']);
+  assert.deepEqual([I.undo(byId('c1')).ok, I.pendingCount()], [true, 3]);
+  I.importMany([byId('f1'), byId('k1')], null);
+  const after = S.getCashAccounts()[0].balance;
+  assert.equal(after, 100000 + 50000 - 50 - 111);                    // 入金 +50000、期貨手續費與稅
+  assert.equal(I.doneOf(byId('k1')).ref, F.getState().flows[0].id);
+  assert.deepEqual([I.undo(byId('k1')).removed, F.getState().flows.length, S.getCashAccounts()[0].balance], [true, 0, after - 50000]);
+  assert.deepEqual([I.undo(byId('f1')).removed, F.getState().trades.length, S.getCashAccounts()[0].balance], [true, 0, 100000]);
+  assert.equal(I.pendingCount(), 3);
+});
+
+test('舊版的處理紀錄沒有記下紀錄 id → 用來源標記與內容找回對應的那筆', () => {
+  feed([stock(), stock({ id: 'c2' }), fut()]);                        // c1、c2 內容完全相同
+  const items = S.getInbox().items;
+  I.importMany(items, null);
+  const done = S.getInboxDone();
+  Object.keys(done).forEach(k => { done[k] = done[k].slice(0, 2); }); // 模擬舊版：只有 [狀態, 時間]
+  S.setInboxDone(done);
+  const l = I.links();
+  assert.deepEqual(Object.keys(l).sort(), ['c1', 'c2', 'f1']);
+  assert.notEqual(l.c1.rec.id, l.c2.rec.id);                         // 一筆紀錄只配一個項目
+  assert.equal(l.f1.rec.id, F.getState().trades[0].id);
+  C.addTransaction({ symbolInput: 'VOO', type: 'BUY', shares: 2, price: 707.32, fee: 1, market: 'us', time: T('2026-11-11') });   // 手動輸入的（沒有來源標記）不會被認走
+  assert.deepEqual(Object.keys(I.links()).sort(), ['c1', 'c2', 'f1']);
+  assert.equal(I.undo(items[0]).removed, true);
+  assert.equal(S.getTransactions().length, 2);
+});
+
+test('removeCashFlow：移除入出金紀錄；adjust → 餘額沖回；找不到 → 失敗', () => {
+  S.setCashAccounts([{ id: 'm', name: '保證金', currency: 'TWD', balance: 500 }]);
+  F.patchState({ accountId: 'm' });
+  const a = F.addCashFlow({ amount: 1000, time: T('2026-11-06') }).flow, b = F.addCashFlow({ amount: -200, time: T('2026-11-07'), adjust: false }).flow;
+  assert.equal(F.removeCashFlow(b.id, false).ok, true);
+  assert.equal(S.getCashAccounts()[0].balance, 1500);
+  assert.equal(F.removeCashFlow(a.id, true).ok, true);
+  assert.deepEqual([S.getCashAccounts()[0].balance, F.getState().flows.length], [500, 0]);
+  assert.equal(F.removeCashFlow('nope', true).ok, false);
+});

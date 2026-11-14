@@ -13,7 +13,11 @@
  *
  * App 端狀態：
  *   dives_inbox       本機快取（每次同步由 Gist 覆蓋）
- *   dives_inbox_done  { id: [狀態 'i'=已匯入|'s'=已略過, 時間ms] }（跟著主資料同步 → 別台裝置不會再問一次）
+ *   dives_inbox_done  { id: [狀態, 時間ms, 對應紀錄的 id?] }（跟著主資料同步 → 別台裝置不會再問一次）
+ *                     狀態：'i'=新增了一筆紀錄、'f'=校正了既有的手動紀錄、's'=略過。
+ *                     對應紀錄 id（交易／期貨交易／入出金）讓「已處理」清單能再打開那筆紀錄來修改；
+ *                     舊版處理的沒有這個 id → 用來源標記＋內容找回來（links）。
+ *   已處理的項目只要還在收件匣裡（排程每次重抓最近 60 天）就會列在「已處理」，可再修改或取消匯入（undo）。
  *
  * 和既有紀錄相同的項目（多半是之前手動輸入的）：確認時不會再新增一筆，而是「校正」那筆既有紀錄
  *   ——把日期與手續費改成對帳單上的值（手動輸入的日期常是記帳那天、不是成交日）。
@@ -113,10 +117,91 @@ App.Inbox = (function () {
     return Object.keys(m).map(b => [b, m[b]]).sort((a, b) => b[1] - a[1]);
   }
 
-  function markDone(ids, status) {
+  function markDone(ids, status, ref) {
     const done = S.getInboxDone(), now = Date.now();
-    for (const id of ids) done[id] = [status, now];
+    for (const id of ids) done[id] = ref ? [status, now, ref] : [status, now];
     S.setInboxDone(done);
+  }
+  // 已處理的（還在收件匣裡的；依成交時間新→舊）
+  function processed() {
+    const done = S.getInboxDone();
+    return S.getInbox().items.filter(it => done[it.id]).sort((a, b) => byTime(b, a));
+  }
+  function processedCount() { return processed().length; }
+  // 某筆的處理狀態：{ status:'i'|'f'|'s', at:處理時間ms, ref? }；還沒處理 → null
+  function doneOf(it) {
+    const d = S.getInboxDone()[it.id];
+    return Array.isArray(d) ? { status: d[0], at: +d[1] || 0, ref: d[2] || null } : null;
+  }
+  // 最近一次處理的時間（ms；沒有 → 0）
+  function lastDoneAt() { return processed().reduce((m, it) => Math.max(m, doneOf(it).at), 0); }
+
+  // 已處理項目 → 它在帳上對應的那筆紀錄：{ 項目 id: { kind:'tx'|'fut'|'flow', rec } }。已略過、或紀錄已被刪除 → 沒有。
+  //   有記下紀錄 id 的直接找；舊版處理的沒有 id → 找「由對帳單匯入（有來源標記）、同標的／方向／數量／價格、同一天」的那筆
+  //   （一筆紀錄只配一個項目；匯入後改過內容的舊紀錄找不回來，會顯示成「紀錄已刪除」）
+  function links() {
+    const done = S.getInboxDone(), out = {}, used = new Set();
+    const txs = S.getTransactions(), st = App.Futures ? App.Futures.getState() : { trades: [], flows: [] };
+    const live = processed().filter(it => done[it.id][0] !== 's');
+    for (const it of live) {
+      const ref = done[it.id][2]; if (!ref) continue;
+      const kind = it.kind === 'fut-cash' ? 'flow' : it.kind === 'fut' ? 'fut' : 'tx';
+      const rec = (kind === 'flow' ? st.flows : kind === 'fut' ? st.trades : txs).find(x => x.id === ref);
+      if (rec) { used.add(rec.id); out[it.id] = { kind, rec }; }
+    }
+    for (const it of live.slice().sort(byTime)) {
+      if (done[it.id][2]) continue;
+      const sameDay = t => U.isoDate(new Date(t)) === it.date;
+      const samePrice = p => Math.abs(p - it.price) <= Math.max(0.005, it.price * 1e-4);
+      let kind, rec;
+      if (it.kind === 'fut-cash') {
+        const amt = it.type === 'DEPOSIT' ? it.amount : -it.amount;
+        kind = 'flow'; rec = st.flows.find(x => !used.has(x.id) && x.src && Math.abs(x.amount - amt) < 0.005 && sameDay(x.time));
+      } else if (it.kind === 'fut') {
+        kind = 'fut'; rec = st.trades.find(t => !used.has(t.id) && t.src && t.contract === it.contract && String(t.month) === it.month && t.side === it.side && t.lots === it.lots && samePrice(t.price) && sameDay(t.time));
+      } else {
+        kind = 'tx'; rec = txs.find(t => !used.has(t.id) && t.source && String(t.source).startsWith('inbox:') && t.symbol === it.symbol && t.type === it.side && Math.abs(t.shares - it.shares) < 1e-6 && samePrice(t.price) && sameDay(t.time));
+      }
+      if (rec) { used.add(rec.id); out[it.id] = { kind, rec }; }
+    }
+    return out;
+  }
+  // 匯入後那筆紀錄被改過（日期、方向、數量或價格和對帳單不同；費用不算——估算的費用本來就會被改成實際值）
+  function edited(it, link) {
+    if (!link) return false;
+    const r = link.rec, day = U.isoDate(new Date(r.time)) !== it.date;
+    if (link.kind === 'flow') return day || Math.abs(Math.abs(r.amount) - it.amount) > 0.005;
+    const price = Math.abs(r.price - it.price) > Math.max(0.005, it.price * 1e-4);
+    if (link.kind === 'fut') return day || price || r.lots !== it.lots || r.side !== it.side || r.contract !== it.contract || String(r.month) !== it.month;
+    return day || price || Math.abs(r.shares - it.shares) > 1e-6 || r.type !== it.side;
+  }
+
+  // 取消處理：把項目放回待確認。
+  //   已略過 → 只拿掉處理紀錄；
+  //   新增的（'i'）→ 連同那筆紀錄一起刪掉（現金帳戶／保證金沖回）；刪不掉（例如會讓之後的賣出超賣）→ 不動，回報原因；
+  //   校正既有紀錄的（'f'）→ 那筆是原本手動輸入的，保留不刪，只拿掉來源標記（放回待確認後仍會被認成「已輸入」）。
+  //   回傳 { ok, symbol?(股票代號), removed(有沒有刪掉紀錄), kept(紀錄保留) , msg? }
+  function undo(it) {
+    const d = doneOf(it);
+    if (!d) return { ok: false, msg: '這筆還沒處理' };
+    const link = d.status === 's' ? null : links()[it.id];
+    const keep = d.status === 'f';
+    let symbol = null;
+    if (link) {
+      let r = { ok: true };
+      if (link.kind === 'tx') {
+        symbol = link.rec.symbol;
+        if (keep) { const txs = S.getTransactions(), t = txs.find(x => x.id === link.rec.id); if (t) { delete t.source; S.setTransactions(txs); } }
+        else r = App.Calc.deleteTransaction(link.rec.id);
+      } else if (link.kind === 'fut') {
+        r = keep ? App.Futures.updateTrade(link.rec.id, { src: undefined }) : App.Futures.deleteTrade(link.rec.id);
+      } else {
+        r = App.Futures.removeCashFlow(link.rec.id, !keep);
+      }
+      if (!r.ok) return r;
+    }
+    const done = S.getInboxDone(); delete done[it.id]; S.setInboxDone(done);
+    return { ok: true, symbol, removed: !!link && !keep, kept: !!link && keep };
   }
   function skip(ids) { markDone(ids, 's'); }
 
@@ -182,7 +267,12 @@ App.Inbox = (function () {
       res = App.Calc.addTransaction({ symbolInput: it.symbol, type: it.side, shares: it.shares, price: it.price, fee: it.fee + (it.tax || 0),
         market: it.market || undefined, name: it.name || undefined, accountId: opts.accountId || undefined, time: itemTime(it), source: src });
     }
-    if (res.ok) { markDone([it.id], 'i'); return Object.assign({}, res, { fixed: !!m }); }
+    if (res.ok) {
+      // 記下對應的紀錄（之後在「已處理」可以再打開來修改、或取消匯入）
+      const ref = it.kind === 'fut-cash' ? res.flow && res.flow.id : it.kind === 'fut' ? res.trade && res.trade.id : m && m.kind === 'tx' ? m.id : res.id;
+      markDone([it.id], m ? 'f' : 'i', ref);
+      return Object.assign({}, res, { fixed: !!m });
+    }
     return res;
   }
 
@@ -221,5 +311,5 @@ App.Inbox = (function () {
   }
 
   return { FILENAME, BROKERS, brokerName, brokerLabel, normItem, setFromRemote, pruneDone, itemTime, pending, pendingCount, pendingByBroker,
-    markDone, skip, isDuplicate, matchExisting, balanceCheck, importItem, importMany, accountFor, setAccountFor, currencyFor };
+    markDone, skip, processed, processedCount, doneOf, lastDoneAt, links, edited, undo, isDuplicate, matchExisting, balanceCheck, importItem, importMany, accountFor, setAccountFor, currencyFor };
 })();

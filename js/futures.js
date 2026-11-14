@@ -257,6 +257,15 @@ App.Futures = (function () {
     if (adjust !== false) S.adjustCashBalance(st.accountId, amount);
     return { ok: true, flow };
   }
+  // 移除一筆入出金紀錄。adjust=true → 同時把保證金帳戶餘額沖回（當初新增時有動到餘額的才需要）
+  function removeCashFlow(id, adjust) {
+    const st = getState();
+    const flow = st.flows.find(x => x.id === id); if (!flow) return { ok: false, msg: '找不到這筆入出金' };
+    st.flows = st.flows.filter(x => x.id !== id);
+    saveState(st);
+    if (adjust && st.accountId && S.getCashAccounts().some(a => a.id === st.accountId)) S.adjustCashBalance(st.accountId, -flow.amount);
+    return { ok: true };
+  }
   // 期貨的資金流（供年化報酬）：{ time, amount }，投入為負、取回為正；最後一筆是目前權益數。
   //   紀錄以外的入金（手動調餘額）＝ 餘額 − 已實現淨額 − 有紀錄的入出金，當成第一筆交易那天投入。
   //   沒連結保證金帳戶 → 不知道本金，回傳 []
@@ -384,6 +393,6 @@ App.Futures = (function () {
     return { price: q.price, dailyChange: q.prevClose != null ? q.price - q.prevClose : 0, prevClose: q.prevClose };
   }
 
-  return { addCashFlow, xirrFlows, parseYahooFutures, realtimeQuote, dayPnlOf, MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
+  return { addCashFlow, removeCashFlow, xirrFlows, parseYahooFutures, realtimeQuote, dayPnlOf, MULT, LABEL, CONTRACTS, TAX_RATE, DEFAULTS, priceKey, taxOf, expiryOf, upcomingMonths, getState, saveState, patchState, replay, riskLevel, summary, records,
     addTrade, deleteTrade, updateTrade, rollover, parseTaifexMargins, parseFuturesDaily };
 })();

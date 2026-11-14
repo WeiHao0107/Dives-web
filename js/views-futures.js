@@ -164,12 +164,14 @@ App.ViewsFutures = (function () {
     $('#fx-cancel').addEventListener('click', UI.closeSheet);
     if ($('#fx-del')) $('#fx-del').addEventListener('click', () => UI.confirmDialog('刪除這筆期貨交易？帳戶餘額會沖回。', () => { F.deleteTrade(p.id); UI.closeSheet(); App.afterDataChange([]); onDone && onDone(); }, '刪除'));
     $('#fx-ok').addEventListener('click', () => {
-      const v = vals();
+      const v = vals(), dv = $('#fx-date').value || today;
       const rec = { contract: fs.contract, month: $('#fx-month').value, side: fs.side, lots: v.lots, price: v.price, fee: v.feePerLot * v.lots,
-        tax: $('#fx-tax').value !== '' ? parseFloat($('#fx-tax').value) : undefined, time: new Date(($('#fx-date').value || today) + 'T12:00:00+08:00').getTime() };
+        tax: $('#fx-tax').value !== '' ? parseFloat($('#fx-tax').value) : undefined,
+        // 日期沒改 → 保留原本的成交時間（編輯既有交易、或由對帳單帶入的）；改了日期 → 那天中午
+        time: p.time && dv === U.isoDate(new Date(p.time)) ? p.time : new Date(dv + 'T12:00:00+08:00').getTime() };
       const res = editing ? F.updateTrade(p.id, rec) : F.addTrade(rec);
       if (!res.ok) return UI.toast(res.msg, 'info');
-      UI.closeSheet(); App.afterDataChange([]); onDone && onDone();
+      UI.closeSheet(); App.afterDataChange([]); onDone && onDone(res.trade);
     });
     preview();
   }

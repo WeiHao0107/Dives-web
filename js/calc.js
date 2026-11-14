@@ -205,7 +205,7 @@ App.Calc = (function () {
     recomputeRealized(symbol);
     // 現金帳戶連動：買入扣款、賣出存入（帳戶原幣別金額）
     if (accountId) S.adjustCashBalance(accountId, txCashDelta(newTx));
-    return { ok: true, symbol };
+    return { ok: true, symbol, id: newTx.id };
   }
 
   // 時間序重播，找出第一筆「賣出股數 > 當時持股」的賣出；回傳 {tx, held}，無則 null

@@ -98,6 +98,8 @@ Market = { tse, otc, rotc, us, crypto, unknown }
 - `broker`：`cathay`｜`yuanta-fut`｜`yuanta`｜`firstrade`（其他字串照樣顯示）。`fee` 為整筆合計；期貨 `tax` 省略則依合約自動算；股票的 `tax` 併入手續費。股票可帶 `feeEst: true`＝對帳單沒有列費用、`fee`／`tax` 是腳本估的（元大證券成交回報）：清單標「估費」，校正既有紀錄時只改日期、不覆蓋原本的費用。
 - 期貨入出金：`{ id, broker, kind:'fut-cash', date, type:'DEPOSIT'|'WITHDRAW', amount, source? }`。另有頂層 `balances:[{ broker, date, balance }]`＝各券商最新對帳單的帳戶餘額，只供核對。
 - 格式不對的項目整筆丟掉（不猜）；腳本應保留近 60 天的項目，舊的可移除。
+- 處理紀錄 `dives_inbox_done`：`{ 項目 id: [狀態, 時間ms, 對應紀錄 id?] }`，狀態 `'i'`＝新增了一筆紀錄、`'f'`＝校正了既有的手動紀錄、`'s'`＝略過。對應紀錄 id 是交易／期貨交易／入出金的 id；舊版寫的沒有第三欄（`Inbox.links` 會用來源標記與內容找回）。
+- 已處理的項目只要還在收件匣檔裡就列在「已處理」頁（`Inbox.processed`，依成交日分組）：點一筆＝編輯帳上那筆紀錄；`Inbox.undo`＝取消匯入、放回待確認。
 - 本機狀態：`dives_inbox`（收件匣快取，不同步）、`dives_inbox_done`（`{ id: [ 'i'已匯入 | 's'已略過, 時間 ] }`，同步）、`dives_inbox_cfg`（`{ acct: { 券商: 現金帳戶 id } }`，同步）。
 
 `meta.market` 缺漏或 `unknown`（舊備份、iOS 匯出不認得的市場字串）時，`metaMap()` **讀取時**依代碼格式補上（`guessMarketBySymbol`），`upsertMeta` 寫回即修復；否則字母代碼的美股會被當台股（不換匯率、報價走台股來源）。
@@ -218,6 +220,7 @@ netWorthBuckets(snapshots, gran, cashLiab) -> Bucket[]
 - **I17**：`athInfo(currentNw)` = 歷史最高淨資產（各日快照 `netWorth` 與今天即時值取大），回傳日期、是否今天創高、目前距高點 %。走勢折線以每日資料畫（≤ 800 天），並標出第一條線的最高／最低點（`Charts.extremes`）；報表迷你走勢不標。
 - **I22**：歷史換算用當天匯率 —— `fxFn(fx)`：`fx` 給數字則全程同一個匯率，給序列 `[{date, rate}]` 則取該日或之前最近一筆。`symbolSeries`／`buildGroupSeries`／`rebuildSnapshots` 的匯率參數都接受兩者；抓不到歷史匯率（`Api.fetchFxHistory` 回 `[]`）就退回目前匯率。
 - **I23**：年化報酬含期貨（僅在已連結保證金帳戶時）—— `Futures.xirrFlows`：有日期的入出金（`flows`）照日期、其餘入金（＝餘額 − 已實現淨額 − 有紀錄入出金）算在第一筆交易那天、終值為目前權益數；淨流量恆等於期貨總損益。
+- **I27**：取消匯入（`Inbox.undo`）依處理方式而定 —— `'i'`（新增的）刪掉那筆紀錄並沖回現金／保證金，刪不掉（會讓之後的賣出超賣）就整個不動；`'f'`（校正既有手動紀錄的）保留紀錄、只拿掉 `inbox:` 來源標記，所以放回待確認後仍會被 `matchExisting` 認成已輸入、不會重複入帳；`'s'` 只移除處理紀錄。編輯交易時日期沒改 → 保留原本的成交時間（同日多筆的先後不變）。
 - **I26**：待確認交易帶 `feeEst`（費用為估算值）時，配到既有手動紀錄的校正只改日期並加來源標記，`fee` 保留原值；沒配到的照估算值新增。
 - **I24**：待確認交易配到既有手動紀錄（`Inbox.matchExisting`）時，確認＝校正那筆的日期與費用並加上 `inbox:` 來源標記，不新增；一筆既有紀錄只配一個項目，有來源標記的不再配對。入出金在餘額已與對帳單相符時只補記日期（`addCashFlow({adjust:false})`）。
 - **I25**：隱藏金額時，群組頁與個股頁的金額（`.pv`）一併遮蔽，百分比照常顯示；個股市值走勢的刻度與高低點數字不顯示。

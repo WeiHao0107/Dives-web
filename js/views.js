@@ -60,7 +60,8 @@ App.Views = (function () {
     bell: NTF_SVG('<path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21a2 2 0 0 0 4 0"/>'),
   };
   // 通知面板：每一列同一種樣式（圖示／標題＋說明／時間）；紫色 = 還沒處理或還沒看過。開啟後一般通知全部標為已讀。
-  //   待確認交易置頂，右邊是箭頭（點了進審核清單）；它是待辦不是通知，「清除全部」不會清掉
+  //   匯入的交易置頂，右邊是箭頭（點了進清單）：有待確認的 → 紫色「N 筆交易待確認」；都處理完 → 灰色「匯入的交易」，
+  //   仍然留著（點進去看已處理的、可再修改）。它不是一般通知，「清除全部」不會清掉
   function openNotifications() {
     const list = S.getNotifications();
     const fmtT = ms => { const p = U.taipeiParts(new Date(ms)); return p.month + '/' + p.day + ' ' + String(p.hour).padStart(2, '0') + ':' + String(p.minute).padStart(2, '0'); };
@@ -69,7 +70,12 @@ App.Views = (function () {
     const byBroker = App.Inbox ? App.Inbox.pendingByBroker() : [];
     const nPend = byBroker.reduce((a, x) => a + x[1], 0);
     let rows = '';
+    const nProc = App.Inbox ? App.Inbox.processedCount() : 0;
     if (nPend) rows += row('inbox', nPend + ' 筆交易待確認', byBroker.map(x => esc(App.Inbox.brokerName(x[0])) + ' ' + x[1]).join(' · '), '<span class="ntf-go">›</span>', ' new go', ' id="ntf-inbox" role="button" tabindex="0"');
+    else if (nProc) {
+      const at = App.Inbox.lastDoneAt(), p = at ? U.taipeiParts(new Date(at)) : null;
+      rows += row('inbox', '匯入的交易', `已處理 ${nProc} 筆${p ? ' · 最近 ' + p.month + '/' + p.day : ''} · 可再修改`, '<span class="ntf-go">›</span>', ' go', ' id="ntf-inbox" role="button" tabindex="0"');
+    }
     rows += list.map(n => row(n.type, esc(n.title), n.body ? esc(n.body) : '', `<span class="ntf-time">${fmtT(n.time)}</span>`, n.read ? '' : ' new')).join('');
     const body = rows ? `<div class="ntf-list">${rows}</div>` : '<div class="empty" style="padding:28px">目前沒有通知</div>';
     const ov = UI.openSheet('通知', body, list.length ? '<button class="btn btn-ghost" id="ntf-clear" style="flex:1">清除全部</button>' : '');
@@ -78,20 +84,26 @@ App.Views = (function () {
     const cb = ov.querySelector('#ntf-clear');
     if (cb) cb.addEventListener('click', () => { S.setNotifications([]); UI.closeSheet(); });
     const ib = ov.querySelector('#ntf-inbox');
-    if (ib) ib.addEventListener('click', () => openInboxReview());
+    if (ib) ib.addEventListener('click', () => { ibx.tab = nPend ? 'pend' : 'done'; openInboxReview(); });
   }
 
-  /* ---- 待確認交易：審核清單（勾選 → 匯入／略過；點一筆 → 先修改再匯入）---- */
+  /* ---- 匯入的交易：兩頁
+   *   待確認：審核清單（勾選 → 匯入／略過；點一筆 → 先修改再匯入）
+   *   已處理：處理過的每一筆（依成交日分組），點一筆 → 再修改那筆紀錄／取消匯入；已略過的 → 改為匯入 ---- */
   // 目前最上層的 sheet：前一個 sheet 關閉動畫的 250ms 內，舊的還留在 DOM（同一個 id），所以取最後一個
   function lastSheet() { const all = document.querySelectorAll('.sheet-overlay'); return all[all.length - 1] || null; }
   // 清單狀態跨重開保留（改完單筆回來時勾選不會跑掉）：sel = 勾選的 id；errs = 上次匯入失敗的原因
-  const ibx = { sel: null, errs: {} };
+  //   tab = 目前在哪一頁（'pend' 待確認／'done' 已處理）
+  const ibx = { sel: null, errs: {}, tab: 'pend' };
+  function closeInbox() { ibx.sel = null; ibx.errs = {}; UI.closeSheet(); App.renderCurrent && App.renderCurrent(); }
+  // 處理完一筆之後回清單：人在待確認那頁而且已經清空 → 直接關掉；否則重開清單（停在原本那頁）
+  function backToInbox() { if (ibx.tab !== 'done' && !App.Inbox.pendingCount()) closeInbox(); else openInboxReview(); }
   function inboxMoney(it, v) { return (it.market === U.Market.us || it.market === U.Market.crypto || (!it.market && U.guessMarketBySymbol(it.symbol) === U.Market.us) ? '$' : '') + U.formatPrice(v); }
   // 費用與合計：美股／加密照原樣（有小數）；台股是整數元 → 不帶小數
   function inboxAmt(it, v) { const s = inboxMoney(it, v); return s[0] === '$' ? s : U.fmtWhole(v); }
   function openInboxReview() {
-    const I = App.Inbox, pend = I.pending();
-    if (!pend.length) { ibx.sel = null; ibx.errs = {}; UI.closeSheet(); App.renderCurrent && App.renderCurrent(); return; }
+    const I = App.Inbox, pend = I.pending(), proc = I.processed();
+    if (!pend.length && !proc.length) return closeInbox();
     // 和既有手動紀錄配對到的項目：確認時不會新增，而是校正那筆的日期與費用（入出金：只補記日期）→ 不會重複入帳，所以預設也勾選
     const match = I.matchExisting(pend), dup = {};
     pend.forEach(it => { dup[it.id] = !!match[it.id]; });
@@ -142,25 +154,82 @@ App.Views = (function () {
       return `<div class="ibx-gh"><b>${esc(I.brokerLabel(b))}</b>${acct}</div>${bal}<div class="ibx-list">${items.map(rowHtml).join('')}</div>`;
     };
     const nDup = pend.filter(it => dup[it.id]).length;
-    const body = `<div class="ibx-top"><span>${pend.length} 筆待確認${nDup ? `，其中 ${nDup} 筆你已輸入過（確認後校正${pend.some(it => dup[it.id] && it.kind !== 'fut-cash' && !it.feeEst) ? '日期與費用' : '日期'}，不會重複）` : '，點一筆可先修改'}</span><button class="ibx-all" id="ibx-all"></button></div>${brokers.map(groupHtml).join('')}`;
-    const ov = UI.openSheet('待確認交易', body, `<button class="btn btn-ghost" id="ibx-skip">略過選取</button><button class="btn btn-primary" id="ibx-import"></button>`);
+    const pendHtml = !pend.length ? '<div class="empty" style="padding:28px">沒有待確認的交易</div>' : `<div class="ibx-top"><span>${pend.length} 筆待確認${nDup ? `，其中 ${nDup} 筆你已輸入過（確認後校正${pend.some(it => dup[it.id] && it.kind !== 'fut-cash' && !it.feeEst) ? '日期與費用' : '日期'}，不會重複）` : '，點一筆可先修改'}</span><button class="ibx-all" id="ibx-all"></button></div>${brokers.map(groupHtml).join('')}`;
+
+    // ---- 已處理：依成交日分組（新→舊）。有對應紀錄的顯示「帳上那筆現在的內容」（改過就跟著變）----
+    const link = I.links(), WD = '日一二三四五六';
+    const doneRow = it => {
+      const d = I.doneOf(it), l = link[it.id], r = l ? l.rec : null;
+      const gone = d.status !== 's' && !l;   // 匯入過，但那筆紀錄後來被刪掉了
+      const st = d.status === 's' ? ['skip', '已略過'] : gone ? ['skip', '紀錄已刪除']
+        : [d.status === 'f' ? 'fix' : 'ok', (d.status === 'f' ? '已校正' : '已匯入') + (I.edited(it, l) ? '・已改' : '')];
+      const sideChip = side => `<span class="tx-type ${side === 'BUY' ? 'buy' : 'sell'}">${side === 'BUY' ? 'Buy' : 'Sell'}</span>`;
+      let chip, name, sub, amt = '';
+      if (it.kind === 'fut-cash') {
+        const a = r ? r.amount : (it.type === 'DEPOSIT' ? it.amount : -it.amount), dep = a >= 0, v = `${dep ? '+' : '−'}${U.fmtWhole(Math.abs(a))}`;
+        chip = `<span class="tx-type evt">${dep ? '入金' : '出金'}</span>`;
+        name = `<b>保證金${dep ? '入金' : '出金'}</b>`;
+        sub = d.status === 'f' ? '只補記日期，餘額沒有變動' : '保證金帳戶 ' + v;
+        amt = v;
+      } else if (it.kind === 'fut') {
+        const v = r || it;
+        chip = sideChip(v.side);
+        name = `<b>${App.Futures.LABEL[v.contract]}</b><em>${v.month}</em>`;
+        sub = `${v.lots} 口 @ ${U.fmtWhole(v.price)}${v.fee ? ' · 費 ' + U.fmtWhole(v.fee) : ''}${v.tax ? ' · 稅 ' + U.fmtWhole(v.tax) : ''}`;
+      } else {
+        const side = r ? r.type : it.side, shares = r ? r.shares : it.shares, price = r ? r.price : it.price;
+        const cost = r ? (r.fee || 0) : it.fee + (it.tax || 0);
+        chip = sideChip(side);
+        name = `<b>${esc(it.symbol)}</b>${it.name ? `<em>${esc(it.name)}</em>` : ''}`;
+        sub = `${U.formatShares(shares)} 股 @ ${inboxMoney(it, price)}${cost ? ` · <span style="white-space:nowrap">${!r && it.feeEst ? '估費' : '費'} ${inboxAmt(it, cost)}</span>` : ''}`;
+        amt = inboxAmt(it, shares * price + (side === 'BUY' ? cost : -cost));
+      }
+      return `<div class="ibx-it done${d.status === 's' || gone ? ' dim' : ''}" data-id="${esc(it.id)}">
+        ${chip}
+        <div class="ibx-main"><div class="ibx-t">${name}<span class="ibx-st ${st[0]}">${st[1]}</span></div><div class="ibx-s">${sub}</div></div>
+        <div class="ibx-r">${amt ? `<b>${amt}</b>` : ''}<span>${esc(I.brokerName(it.broker))}</span></div><span class="ibx-chev">›</span>
+      </div>`;
+    };
+    const days = []; proc.forEach(it => { if (!days.includes(it.date)) days.push(it.date); });
+    const dayHtml = day => {
+      const items = proc.filter(it => it.date === day);
+      return `<div class="ibx-gh"><b>${md(day)}（${WD[new Date(day + 'T00:00:00Z').getUTCDay()]}）</b><span class="ibx-n">${items.length} 筆</span></div><div class="ibx-list">${items.map(doneRow).join('')}</div>`;
+    };
+    const doneHtml = !proc.length ? '<div class="empty" style="padding:28px">還沒有處理過的交易</div>'
+      : `<div class="ibx-top"><span>點一筆可以再修改；已略過的可以改為匯入</span></div>${days.map(dayHtml).join('')}<div class="ibx-foot">只列出最近 60 天對帳單裡的交易</div>`;
+
+    const tabs = `<div class="seg seg-wide" id="ibx-tabs"><button class="seg-btn" data-tab="pend">待確認${pend.length ? ' ' + pend.length : ''}</button><button class="seg-btn" data-tab="done">已處理${proc.length ? ' ' + proc.length : ''}</button></div>`;
+    const ov = UI.openSheet('匯入的交易', `${tabs}<div id="ibx-pane-pend">${pendHtml}</div><div id="ibx-pane-done">${doneHtml}</div>`,
+      `<button class="btn btn-ghost" id="ibx-skip">略過選取</button><button class="btn btn-primary" id="ibx-import"></button>`);
+    const pp = ov.querySelector('#ibx-pane-pend'), dp = ov.querySelector('#ibx-pane-done');
+    // 切換頁籤只就地切換顯示（不重開 sheet）；底部的「略過／確認」只屬於待確認那頁
+    const paintTab = () => {
+      const isP = ibx.tab !== 'done';
+      ov.querySelectorAll('#ibx-tabs .seg-btn').forEach(b => b.classList.toggle('active', (b.dataset.tab !== 'done') === isP));
+      pp.hidden = !isP; dp.hidden = isP;
+      ov.querySelector('.sheet-foot').style.display = isP && pend.length ? '' : 'none';
+    };
+    paintTab();
+    ov.querySelectorAll('#ibx-tabs .seg-btn').forEach(b => b.addEventListener('click', () => { ibx.tab = b.dataset.tab; paintTab(); ov.querySelector('.sheet-body').scrollTop = 0; }));
+    dp.querySelectorAll('.ibx-it').forEach(r => r.addEventListener('click', () => { const it = proc.find(x => x.id === r.dataset.id); if (it) openDoneItem(it); }));
+    if (!pend.length) return;
     // 勾選只就地更新（不重開 sheet，避免閃動與捲動位置跑掉）
     const paintSel = () => {
       const n = ibx.sel.size;
-      ov.querySelectorAll('.ibx-ck').forEach(b => { const on = ibx.sel.has(b.dataset.ck); b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
+      pp.querySelectorAll('.ibx-ck').forEach(b => { const on = ibx.sel.has(b.dataset.ck); b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
       ov.querySelector('#ibx-all').textContent = n === pend.length ? '取消全選' : '全選';
       ov.querySelector('#ibx-import').textContent = `確認 ${n} 筆`;
       ov.querySelector('#ibx-import').disabled = ov.querySelector('#ibx-skip').disabled = !n;
     };
     paintSel();
     ov.querySelector('#ibx-all').addEventListener('click', () => { ibx.sel = ibx.sel.size === pend.length ? new Set() : new Set(pend.map(it => it.id)); paintSel(); });
-    ov.querySelectorAll('.ibx-ck').forEach(b => b.addEventListener('click', e => {
+    pp.querySelectorAll('.ibx-ck').forEach(b => b.addEventListener('click', e => {
       e.stopPropagation();
       const id = b.dataset.ck; if (ibx.sel.has(id)) ibx.sel.delete(id); else ibx.sel.add(id);
       paintSel();
     }));
-    ov.querySelectorAll('.ibx-acct').forEach(s => s.addEventListener('change', () => { I.setAccountFor(s.dataset.broker, s.value); if (App.Sync) App.Sync.markDirty(); }));
-    ov.querySelectorAll('.ibx-it').forEach(r => r.addEventListener('click', () => {
+    pp.querySelectorAll('.ibx-acct').forEach(s => s.addEventListener('change', () => { I.setAccountFor(s.dataset.broker, s.value); if (App.Sync) App.Sync.markDirty(); }));
+    pp.querySelectorAll('.ibx-it').forEach(r => r.addEventListener('click', () => {
       const it = pend.find(x => x.id === r.dataset.id); if (!it) return;
       if (it.kind === 'fut-cash') { if (ibx.sel.has(it.id)) ibx.sel.delete(it.id); else ibx.sel.add(it.id); paintSel(); return; }   // 入出金沒有可改的欄位 → 點一下只切換勾選
       openInboxItem(it, match[it.id]);
@@ -172,7 +241,7 @@ App.Views = (function () {
         if (App.Sync) App.Sync.markDirty();
         UI.toast(`已略過 ${chosen.length} 筆`, 'info');
         App.renderCurrent && App.renderCurrent();
-        openInboxReview();
+        backToInbox();
       }, '略過');
       lastSheet().querySelector('#cd-no').addEventListener('click', () => openInboxReview());   // 取消 → 回清單
     });
@@ -197,14 +266,14 @@ App.Views = (function () {
   // 單筆：開一般的交易表單並帶入內容，確認＝匯入；另有「略過」。取消 → 回清單
   function openInboxItem(it, matched) {
     const I = App.Inbox;
-    const back = () => openInboxReview();
+    const back = () => backToInbox();
     const done = () => { delete ibx.errs[it.id]; if (ibx.sel) ibx.sel.delete(it.id); };
     const skip = () => { I.skip([it.id]); done(); if (App.Sync) App.Sync.markDirty(); UI.closeSheet(); UI.toast('已略過', 'info'); App.renderCurrent && App.renderCurrent(); back(); };
     const src = (it.source || I.brokerName(it.broker));
     if (it.kind === 'fut') {
       App.ViewsFutures.openTradeForm({ contract: it.contract, month: it.month, side: it.side, lots: it.lots, price: it.price,
         feePerLot: it.lots ? Math.round(it.fee / it.lots * 100) / 100 : 0, tax: it.tax != null ? it.tax : undefined, time: I.itemTime(it) },
-        () => { I.markDone([it.id], 'i'); done(); if (App.Sync) App.Sync.markDirty(); if (it.date < U.isoDate() && App.rebuildHistory) App.rebuildHistory().catch(() => {}); UI.toast('已匯入', 'success'); back(); });
+        tr => { I.markDone([it.id], 'i', tr && tr.id); done(); if (App.Sync) App.Sync.markDirty(); if (it.date < U.isoDate() && App.rebuildHistory) App.rebuildHistory().catch(() => {}); UI.toast('已匯入', 'success'); back(); });
       // 期貨表單是共用的：在這裡補上標題、來源、略過鈕與「取消回清單」
       const ov = lastSheet(); if (!ov) return;
       ov.querySelector('.sheet-title').textContent = '匯入期貨交易';
@@ -218,10 +287,69 @@ App.Views = (function () {
     openTxForm(null, null, {
       preset: { symbol: it.symbol, name: it.name, market: it.market || U.guessMarketBySymbol(it.symbol), isBuy: it.side === 'BUY', date: it.date, time: I.itemTime(it),
         shares: it.shares, price: it.price, fee: Math.round((it.fee + (it.tax || 0)) * 100) / 100, accountId: I.accountFor(it.broker), source: 'inbox:' + it.broker, note: '來源：' + src + (it.feeEst ? '。對帳單沒有列手續費與交易稅，這裡的費用是用牌告費率估算的，可以自行修改' : '') + (matched ? '。你已輸入過相同的紀錄；在這裡按「匯入這筆」會另外新增一筆。只想校正日期請回清單勾選後按確認。' : '') },
-      onAdded: () => { I.markDone([it.id], 'i'); done(); },
+      onAdded: (sym, id) => { I.markDone([it.id], 'i', id); done(); },
       after: (sym, time) => { if (U.isoDate(new Date(time)) < U.isoDate() && App.rebuildHistory) App.rebuildHistory().catch(() => {}); UI.toast('已匯入', 'success'); back(); },
       onCancel: back, onSkip: skip,
     });
+  }
+
+  // 已處理的單筆：
+  //   有對應紀錄 → 開平常的編輯表單（股票／期貨）改那筆紀錄，「刪除」換成「取消匯入」；入出金沒有可改的欄位 → 直接問要不要取消匯入
+  //   已略過 → 開匯入表單（可改為匯入）；入出金 → 問要不要放回待確認
+  //   紀錄已被刪除 → 問要不要放回待確認
+  function openDoneItem(it) {
+    const I = App.Inbox, d = I.doneOf(it); if (!d) return;
+    const l = d.status === 's' ? null : I.links()[it.id];
+    const back = () => { ibx.tab = 'done'; openInboxReview(); };
+    // 取消匯入／放回待確認：先確認；取消 → 回到原本的畫面
+    const undo = (msg, label, onNo) => {
+      UI.confirmDialog(msg, () => {
+        const r = I.undo(it);
+        if (!r.ok) { UI.toast(r.msg || '無法取消匯入', 'error'); return back(); }
+        if (App.Sync) App.Sync.markDirty();
+        if (r.removed || r.kept) {
+          App.afterDataChange(r.symbol ? [r.symbol] : []);
+          if (r.removed && it.date < U.isoDate() && App.rebuildHistory) App.rebuildHistory().catch(e => console.warn('rebuild after undo failed', e));
+        } else if (App.renderCurrent) App.renderCurrent();
+        UI.toast('已放回待確認', 'info');
+        if (ibx.sel) ibx.sel.add(it.id);
+        ibx.tab = 'pend'; openInboxReview();
+      }, label);
+      lastSheet().querySelector('#cd-no').addEventListener('click', onNo || back);
+    };
+    const cash = it.kind === 'fut-cash', dep = it.type === 'DEPOSIT';
+    if (d.status === 's') {
+      if (cash) return undo(`把這筆保證金${dep ? '入金' : '出金'} ${U.fmtWhole(it.amount)} 放回待確認？`, '放回待確認');
+      return openInboxItem(it, I.matchExisting([it])[it.id]);
+    }
+    if (!l) return undo('找不到這筆匯入的紀錄，可能已經刪除，或匯入後改過內容。要把它放回待確認嗎？', '放回待確認');
+    const keep = d.status === 'f';
+    if (cash) {
+      return undo(keep ? '取消匯入這筆入出金？當初只有補記日期，保證金餘額不會變動；它會回到待確認。'
+        : `取消匯入這筆${dep ? '入金' : '出金'} ${U.fmtWhole(it.amount)}？保證金帳戶會${dep ? '扣回' : '加回'}這筆金額，並把它放回待確認。`, '取消匯入');
+    }
+    const p = U.taipeiParts(new Date(d.at));
+    const note = `來源：${it.source || I.brokerName(it.broker)}${d.at ? ` · ${p.month}/${p.day} ${keep ? '校正' : '匯入'}` : ''}`
+      + (it.kind === 'stock' && it.feeEst && !keep ? '。對帳單沒有列手續費與交易稅，匯入時的費用是用牌告費率估算的，可以改成實際金額' : '');
+    const reopen = () => openDoneItem(it);
+    const undoMsg = keep ? '這筆是你原本手動輸入的紀錄。取消匯入後紀錄會保留，只把對帳單這筆放回待確認。'
+      : it.kind === 'fut' ? '取消匯入這筆期貨交易？這筆紀錄會刪除、帳戶餘額會沖回，並把它放回待確認。'
+      : `取消匯入 ${esc(it.symbol)} 這筆交易？這筆紀錄會刪除${l.rec.accountId ? '、現金帳戶的金額會沖回' : ''}，並把它放回待確認。`;
+    const saved = () => { UI.toast('已儲存', 'success'); back(); };
+    if (it.kind === 'fut') {
+      const tr = l.rec;
+      App.ViewsFutures.openTradeForm({ id: tr.id, contract: tr.contract, month: tr.month, side: tr.side, lots: tr.lots, price: tr.price,
+        feePerLot: tr.lots ? Math.round(tr.fee / tr.lots * 100) / 100 : 0, tax: tr.tax, time: tr.time }, saved);
+      const ov = lastSheet(); if (!ov) return;
+      ov.querySelector('.sheet-body').insertAdjacentHTML('afterbegin', `<div class="ibx-src">${esc(note)}</div>`);
+      ov.querySelector('#fx-ok').textContent = '儲存';
+      ov.querySelector('#fx-cancel').addEventListener('click', back);
+      const ub = document.createElement('button'); ub.className = 'btn btn-ghost ibx-skipone ibx-undo'; ub.textContent = '取消匯入';
+      ub.addEventListener('click', () => undo(undoMsg, '取消匯入', reopen));
+      ov.querySelector('#fx-del').replaceWith(ub);
+      return;
+    }
+    openTxForm(l.rec, null, { note, onCancel: back, after: saved, undo: () => undo(undoMsg, '取消匯入', reopen) });
   }
 
   // 頂端下拉並「維持 1 秒」→ 觸發更新（避免誤觸；資產/投資頁）
@@ -3113,6 +3241,8 @@ App.Views = (function () {
   let txState = null;
   function openTxForm(editing, presetSym, txOpts) {
     // txOpts.preset：由待確認交易帶入（代號、方向、日期、股數、價格、手續費金額、現金帳戶）；確認＝匯入
+    // 編輯由對帳單匯入的紀錄（從「已處理」點進來）：txOpts.note＝上方的來源說明、txOpts.after＝存檔後回呼、
+    //   txOpts.undo＝「取消匯入」（取代刪除鈕）、txOpts.onCancel＝取消後回呼
     const pre = (!editing && txOpts && txOpts.preset) || null;
     if (pre) presetSym = pre.symbol;
     txState = {
@@ -3128,7 +3258,8 @@ App.Views = (function () {
       const m = S.metaMap()[presetSym] || {};
       txState.picked = { code: presetSym, name: (pre && pre.name) || m.name || presetSym, market: U.normalizeMarketKey((pre && pre.market) || m.market || U.guessMarketBySymbol(presetSym)) };
     }
-    const body = `${pre && pre.note ? `<div class="ibx-src">${esc(pre.note)}</div>` : ''}
+    const topNote = pre ? pre.note : editing && txOpts ? txOpts.note : '';
+    const body = `${topNote ? `<div class="ibx-src">${esc(topNote)}</div>` : ''}
       <div class="tx-toggle">
         <button class="tt-btn buy ${txState.isBuy ? 'active' : ''}" data-buy="1">買入</button>
         <button class="tt-btn sell ${!txState.isBuy ? 'active' : ''}" data-buy="0">賣出</button>
@@ -3163,7 +3294,7 @@ App.Views = (function () {
         <select class="input" id="tx-acct"><option value="">不使用現金帳戶</option></select>
       </label>` : ''}
       <div class="tx-preview" id="tx-preview"></div>`;
-    const footer = `${pre && txOpts.onSkip ? '<button class="btn btn-ghost ibx-skipone" id="tx-skip">略過</button>' : ''}<button class="btn btn-ghost" id="tx-cancel">取消</button><button class="btn btn-primary" id="tx-submit">${pre ? '匯入這筆' : '確認'}</button>`;
+    const footer = `${pre && txOpts.onSkip ? '<button class="btn btn-ghost ibx-skipone" id="tx-skip">略過</button>' : ''}<button class="btn btn-ghost" id="tx-cancel">取消</button><button class="btn btn-primary" id="tx-submit">${pre ? '匯入這筆' : ed && txOpts && txOpts.undo ? '儲存' : '確認'}</button>`;
     const ov = UI.openSheet(ed ? '編輯交易' : verb + (txState.isBuy ? '買入' : '賣出'), body, footer);
 
     const $ = s => ov.querySelector(s);
@@ -3279,9 +3410,11 @@ App.Views = (function () {
       const sh = parseFloat($('#tx-shares').value);
       let pr = parseFloat($('#tx-price').value);
       const dateVal = $('#tx-date').value;
-      // 新增：今天 → 當下時間（同日多筆維持輸入順序）；選了其他日期 → 那天中午。帶入的交易日期沒改 → 沿用原成交時間
+      // 新增：今天 → 當下時間（同日多筆維持輸入順序）；選了其他日期 → 那天中午。帶入的交易日期沒改 → 沿用原成交時間；
+      //   編輯時日期沒改 → 也保留原本的時間（只改費用時，同一天多筆的先後順序才不會跑掉）
       const time = !dateVal ? Date.now()
         : pre && dateVal === pre.date ? pre.time
+        : ed && dateVal === U.isoDate(new Date(ed.time)) ? ed.time
         : !ed && dateVal === U.isoDate() ? Date.now()
         : new Date(dateVal + 'T12:00:00+08:00').getTime();
       // 加密以台幣計價 → 依匯率換算 USD 儲存（固定金額手續費同步換算）
@@ -3296,6 +3429,7 @@ App.Views = (function () {
         const res = C.updateTransaction(ed.id, { type: txState.isBuy ? 'BUY' : 'SELL', shares: sh, price: pr, fee, time });
         if (!res.ok) return UI.toast(res.msg, 'info');
         UI.closeSheet(); App.afterDataChange([res.symbol]);
+        if (txOpts && txOpts.after) txOpts.after(res.symbol, time);
       } else {
         const symbolInput = $('#tx-sym').value;
         // 從建議清單選取者，帶入明確市場與名稱（加密貨幣必要）
@@ -3304,14 +3438,19 @@ App.Views = (function () {
         const res = C.addTransaction({ symbolInput, type: txState.isBuy ? 'BUY' : 'SELL', shares: sh, price: pr, fee, market: pk && pk.market, name: pk && pk.name, accountId,
           time, source: pre ? pre.source : undefined });
         if (!res.ok) return UI.toast(res.msg, 'info');
-        if (txOpts && txOpts.onAdded) txOpts.onAdded(res.symbol); // 例：群組頁＋ → 自動歸入該群組
+        if (txOpts && txOpts.onAdded) txOpts.onAdded(res.symbol, res.id); // 例：群組頁＋ → 自動歸入該群組；待確認交易 → 記下新增的那筆
         UI.closeSheet(); App.afterDataChange([res.symbol]);
         if (txOpts && txOpts.after) txOpts.after(res.symbol, time);
       }
     });
 
-    // 編輯模式提供刪除
-    if (ed) {
+    // 編輯模式提供刪除；由對帳單匯入的紀錄（從「已處理」進來）改成「取消匯入」
+    if (ed && txOpts && txOpts.undo) {
+      const ub = document.createElement('button');
+      ub.className = 'btn btn-ghost ibx-skipone ibx-undo'; ub.textContent = '取消匯入';
+      ub.addEventListener('click', () => txOpts.undo());
+      const foot = ov.querySelector('.sheet-foot'); foot.insertBefore(ub, foot.firstChild);
+    } else if (ed) {
       const foot = ov.querySelector('.sheet-foot');
       const del = document.createElement('button');
       del.className = 'btn btn-danger'; del.textContent = '刪除';
